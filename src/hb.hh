@@ -608,8 +608,9 @@ struct BEInt<Type, 4>
 #include "hb-null.hh"	// Requires: hb-meta
 #include "hb-algs.hh"	// Requires: hb-meta hb-null hb-number
 #include "hb-iter.hh"	// Requires: hb-algs hb-meta
+#include "hb-simd.hh"	// Requires: hb-algs hb-meta
 #include "hb-debug.hh"	// Requires: hb-algs hb-atomic
-#include "hb-array.hh"	// Requires: hb-algs hb-iter hb-null
+#include "hb-array.hh"	// Requires: hb-algs hb-iter hb-null hb-simd
 #include "hb-vector.hh"	// Requires: hb-array hb-null
 #include "hb-object.hh"	// Requires: hb-atomic hb-mutex hb-vector
 
