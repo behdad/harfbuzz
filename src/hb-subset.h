@@ -112,7 +112,7 @@ hb_subset_input_get_notdef_outline (hb_subset_input_t *subset_input);
 
 /* hb_subset () */
 HB_EXTERN hb_face_t *
-hb_subset (hb_face_t *source, hb_subset_input_t *input);
+hb_subset (hb_face_t *source, const hb_subset_input_t *input);
 
 
 HB_END_DECLS
