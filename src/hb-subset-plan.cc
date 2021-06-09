@@ -405,7 +405,7 @@ hb_subset_plan_create (hb_face_t	 *face,
   plan->notdef_outline = input->notdef_outline;
   plan->retain_all_layout_features = input->retain_all_layout_features;
   plan->unicodes = hb_set_create ();
-  plan->name_ids = hb_set_copy (plan->name_ids);
+  plan->name_ids = hb_set_copy (input->name_ids);
   _nameid_closure (face, plan->name_ids);
   plan->name_languages = hb_set_copy (input->name_languages);
   plan->layout_features = hb_set_copy (input->layout_features);
