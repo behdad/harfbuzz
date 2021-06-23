@@ -47,6 +47,7 @@ typedef enum
   HB_SUBSET_FLAG_NAME_LEGACY =		    4,
   HB_SUBSET_FLAG_SET_OVERLAPS_FLAG =	    5,
   HB_SUBSET_FLAG_PASSTHROUGH_UNRECOGNIZED = 6,
+  HB_SUBSET_FLAG_NOTDEF_OUTLINE =	    7,
 } hb_subset_flag_t;
 
 HB_EXTERN hb_subset_input_t *
@@ -93,22 +94,6 @@ HB_EXTERN void
 hb_subset_input_set_flag (hb_subset_input_t *input,
 			  hb_subset_flag_t flag,
 			  hb_bool_t value);
-
-// TODO(garretrieger): remove bool property get/set methods.
-
-HB_EXTERN void
-hb_subset_input_set_overlaps_flag (hb_subset_input_t *subset_input,
-				   hb_bool_t overlaps_flag);
-
-HB_EXTERN hb_bool_t
-hb_subset_input_get_overlaps_flag (hb_subset_input_t *subset_input);
-
-HB_EXTERN void
-hb_subset_input_set_notdef_outline (hb_subset_input_t *subset_input,
-                                    hb_bool_t notdef_outline);
-
-HB_EXTERN hb_bool_t
-hb_subset_input_get_notdef_outline (hb_subset_input_t *subset_input);
 
 /* hb_subset () */
 HB_EXTERN hb_face_t *
