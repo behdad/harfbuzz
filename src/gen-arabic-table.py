@@ -224,13 +224,7 @@ def print_shaping_table(f):
 			ligas[liga[0]].append ((liga[1], c))
 	max_i = max (len (ligas[l]) for l in ligas)
 	print ()
-	print ("static const struct ligature_set_t {")
-	print (" uint16_t first;")
-	print (" struct ligature_pairs_t {")
-	print ("   uint16_t second;")
-	print ("   uint16_t ligature;")
-	print (" } ligatures[%d];" % max_i)
-	print ("} ligature_table[] =")
+	print ("static const struct ligature_set_t ligature_table[] =")
 	print ("{")
 	for first in sorted (ligas.keys ()):
 

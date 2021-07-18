@@ -27,6 +27,8 @@
 #ifndef HB_OT_CMAP_TABLE_HH
 #define HB_OT_CMAP_TABLE_HH
 
+#include "hb-ot-os2-table.hh"
+#include "hb-ot-shape-complex-arabic-pua.hh"
 #include "hb-open-type.hh"
 #include "hb-set.hh"
 
@@ -1497,7 +1499,19 @@ struct cmap
 
       this->get_glyph_data = subtable;
       if (unlikely (symbol))
-	this->get_glyph_funcZ = get_glyph_from_symbol<CmapSubtable>;
+      {
+	switch ((unsigned) face->table.OS2->get_font_page ()) {
+	default:
+	  this->get_glyph_funcZ = get_glyph_from_symbol<CmapSubtable>;
+	  break;
+	case OS2::font_page_t::FONT_PAGE_SIMP_ARABIC:
+	  this->get_glyph_funcZ = get_glyph_from_symbol_arabic_pua1<CmapSubtable>;
+	  break;
+	case OS2::font_page_t::FONT_PAGE_TRAD_ARABIC:
+	  this->get_glyph_funcZ = get_glyph_from_symbol_arabic_pua2<CmapSubtable>;
+	  break;
+	}
+      }
       else
       {
 	switch (subtable->u.format) {
@@ -1611,6 +1625,37 @@ struct cmap
 
       return false;
     }
+
+    template <typename Type>
+    HB_INTERNAL static bool get_glyph_from_symbol_arabic_pua1 (const void *obj,
+							       hb_codepoint_t codepoint,
+							       hb_codepoint_t *glyph)
+    {
+      const Type *typed_obj = (const Type *) obj;
+      if (likely (typed_obj->get_glyph (codepoint, glyph)))
+	return true;
+
+      if (hb_codepoint_t c = _hb_remap_arabic_pua1 (codepoint))
+	return typed_obj->get_glyph (c, glyph);
+
+      return false;
+    }
+
+    template <typename Type>
+    HB_INTERNAL static bool get_glyph_from_symbol_arabic_pua2 (const void *obj,
+							       hb_codepoint_t codepoint,
+							       hb_codepoint_t *glyph)
+    {
+      const Type *typed_obj = (const Type *) obj;
+      if (likely (typed_obj->get_glyph (codepoint, glyph)))
+	return true;
+
+      if (hb_codepoint_t c = _hb_remap_arabic_pua2 (codepoint))
+	return typed_obj->get_glyph (c, glyph);
+
+      return false;
+    }
+
 
     private:
     hb_nonnull_ptr_t<const CmapSubtable> subtable;
