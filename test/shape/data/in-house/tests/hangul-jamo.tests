@@ -7,3 +7,8 @@
 ../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;;U+302F;[dottedcircle=0+500|doubleDot=0@-450,0+0]
 ../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;;U+AC00,U+302E;[singleDot=0+200|ga=0+500]
 ../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;;U+AC00,U+302F;[ga=0+500|doubleDot=0@-450,0+0]
+
+../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;--bot;U+302E;[singleDot=0+200|dottedcircle=0+500]
+../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;--bot;U+302F;[dottedcircle=0+500|doubleDot=0@-450,0+0]
+../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;;U+25CC,U+302E;[singleDot=0+200|dottedcircle=0+500]
+../fonts/da410c694bf4bd186d0b114a5587d0d20df6766c.ttf;;U+25CC,U+302F;[dottedcircle=0+500|doubleDot=0@-450,0+0]
