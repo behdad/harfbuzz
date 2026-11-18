@@ -251,9 +251,49 @@ check_rejected_png (const unsigned char *png, unsigned png_len, int64_t budget)
   hb_vector_paint_destroy (paint);
 }
 
+static void
+write_u32 (unsigned char *p, unsigned value)
+{
+  p[0] = value >> 24;
+  p[1] = value >> 16;
+  p[2] = value >> 8;
+  p[3] = value;
+}
+
+static void
+check_compressed_input_budget (void)
+{
+  /* One RGBA pixel preceded by 128 empty, nonfinal stored DEFLATE blocks.
+   * Decoding must charge for those blocks as well as the five output bytes. */
+  unsigned char png[73 + 128 * 5] = {0};
+  unsigned idat_len = sizeof (png) - 57;
+  memcpy (png, rgba_png, 33);
+  write_u32 (png + 16, 1);
+  write_u32 (png + 20, 1);
+  write_u32 (png + 29, crc32 (0, png + 12, 17));
+  write_u32 (png + 33, idat_len);
+  memcpy (png + 37, "IDAT", 4);
+  unsigned char *p = png + 41;
+  *p++ = 0x78; *p++ = 0x01; /* zlib header */
+  for (unsigned i = 0; i < 128; i++)
+  {
+    *p++ = 0; *p++ = 0; *p++ = 0; *p++ = 255; *p++ = 255;
+  }
+  *p++ = 1; *p++ = 5; *p++ = 0; *p++ = 250; *p++ = 255;
+  const unsigned char pixel[] = {0, 20, 100, 200, 128};
+  memcpy (p, pixel, sizeof (pixel)); p += sizeof (pixel);
+  write_u32 (p, adler32 (1, pixel, sizeof (pixel))); p += 4;
+  write_u32 (p, crc32 (0, png + 37, idat_len + 4)); p += 4;
+  memcpy (p, rgba_png + sizeof (rgba_png) - 12, 12);
+
+  check_alpha_png (png, sizeof (png), pixel + 1, 3, pixel + 4, 1, "/DeviceRGB");
+  check_rejected_png (png, sizeof (png), 10);
+}
+
 int
 main (void)
 {
+  check_compressed_input_budget ();
   check_alpha_png (rgba_png, sizeof (rgba_png), rgba_color, sizeof (rgba_color),
                    rgba_alpha, sizeof (rgba_alpha), "/DeviceRGB");
   check_alpha_png (rgba_palette_png, sizeof (rgba_palette_png), rgba_color, sizeof (rgba_color),

@@ -34,7 +34,8 @@
 #endif
 
 /* Inflate noninterlaced 8-bit PNG rows and undo their byte filters in place.
- * Bound decoded bytes before allocating, and charge work even for bad streams. */
+ * Bound decoded bytes before allocating, and charge work even for bad streams.
+ * Empty DEFLATE blocks can make input much larger than the decoded rows. */
 static bool
 hb_pdf_decode_png_rows (hb_vector_t<uint8_t> *out,
                        const char *idat_data, unsigned idat_len,
@@ -53,7 +54,8 @@ hb_pdf_decode_png_rows (hb_vector_t<uint8_t> *out,
       hb_unsigned_mul_overflows (row_bytes, height, &data_len) ||
       data_len > HB_VECTOR_MAX_DOCUMENT_SIZE ||
       hb_unsigned_mul_overflows (stride, height, &raw_len) ||
-      !hb_budget_spend (*budget, HB_BUDGET_1 * 2, raw_len))
+      !hb_budget_spend (*budget, HB_BUDGET_1 * 2, raw_len) ||
+      !hb_budget_spend (*budget, HB_BUDGET_1, idat_len))
     return false;
 
   if (!out->resize (raw_len)) return false;
