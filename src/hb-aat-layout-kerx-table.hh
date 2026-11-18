@@ -949,6 +949,7 @@ struct KerxSubTable
 
   size_t get_size () const { return u.header.length; }
   unsigned int get_type () const { return u.header.coverage & u.header.SubtableType; }
+  bool is_machine_kern () const { return get_type () == 1 || get_type () == 4; }
 
   template <typename context_t, typename ...Ts>
   typename context_t::return_t dispatch (context_t *c, Ts&&... ds) const
@@ -1100,6 +1101,12 @@ struct KerxTable
       bool reverse;
 
       auto &subtable_accel = accel_data.subtable_accels[i];
+
+      /* Only simple, in-stream kerning may run alongside GPOS. */
+      if (c->plan->apply_gpos &&
+	  (st->is_machine_kern () ||
+	   (st->u.header.coverage & st->u.header.CrossStream)))
+	goto skip;
 
       if (!T::Types::extended && (st->u.header.coverage & st->u.header.Variation))
 	goto skip;
