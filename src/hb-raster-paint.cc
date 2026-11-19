@@ -300,12 +300,25 @@ hb_raster_paint_finalize_path_clip (hb_raster_paint_t *c,
     return;
   }
 
+  const uint8_t *mask_buf = hb_raster_image_get_buffer (mask_img);
+  hb_raster_extents_t mask_ext;
+  hb_raster_image_get_extents (mask_img, &mask_ext);
+  const hb_raster_clip_t &old_clip = c->current_clip ();
+
+  /* The new clip can only be non-zero where the mask overlaps the
+   * previous clip; build it, and pay for it, over that box alone. */
+  int64_t mask_x0 = 0, mask_y0 = 0;
+  unsigned ix0 = 0, iy0 = 0, ix1 = 0, iy1 = 0;
+  bool overlaps = old_clip.has_valid_alpha_mask () &&
+		  hb_raster_paint_intersect_mask (surf, mask_ext, old_clip, w, h,
+						  &mask_x0, &mask_y0,
+						  &ix0, &iy0, &ix1, &iy1);
+
   /* Charge the mask render (its own area; may exceed the surface) plus
    * the clip-buffer pass below. */
-  hb_raster_extents_t mask_render_ext;
-  hb_raster_image_get_extents (mask_img, &mask_render_ext);
-  if (unlikely (!c->charge_work ((int64_t) mask_render_ext.width * mask_render_ext.height +
-				 (int64_t) w * h)))
+  if (unlikely (!c->charge_work ((int64_t) mask_ext.width * mask_ext.height +
+				 (int64_t) (ix1 - ix0) * (iy1 - iy0))) ||
+      !overlaps)
   {
     hb_raster_draw_recycle_image (rdr, mask_img);
     hb_raster_paint_push_empty_clip (c, w, h);
@@ -313,34 +326,7 @@ hb_raster_paint_finalize_path_clip (hb_raster_paint_t *c,
   }
 
   hb_raster_clip_t new_clip = c->acquire_clip (w, h);
-
-  /* Allocate alpha buffer and intersect with previous clip */
-  size_t clip_size = (size_t) new_clip.stride * h;
-  if (unlikely (clip_size > HB_RASTER_MAX_BUFFER_SIZE ||
-                !new_clip.alpha.resize ((unsigned) clip_size)))
-  {
-    hb_raster_draw_recycle_image (rdr, mask_img);
-    hb_raster_paint_push_empty_clip (c, w, h);
-    return;
-  }
-  hb_memset (new_clip.alpha.arrayZ, 0, (unsigned) clip_size);
-
-  const uint8_t *mask_buf = hb_raster_image_get_buffer (mask_img);
-  hb_raster_extents_t mask_ext;
-  hb_raster_image_get_extents (mask_img, &mask_ext);
-  const hb_raster_clip_t &old_clip = c->current_clip ();
-  if (unlikely (!old_clip.has_valid_alpha_mask ()))
-  {
-    hb_raster_draw_recycle_image (rdr, mask_img);
-    hb_raster_paint_push_empty_clip (c, w, h);
-    return;
-  }
-
-  int64_t mask_x0, mask_y0;
-  unsigned ix0, iy0, ix1, iy1;
-  if (!hb_raster_paint_intersect_mask (surf, mask_ext, old_clip, w, h,
-				       &mask_x0, &mask_y0,
-				       &ix0, &iy0, &ix1, &iy1))
+  if (unlikely (!new_clip.alloc_alpha ()))
   {
     hb_raster_draw_recycle_image (rdr, mask_img);
     hb_raster_paint_push_empty_clip (c, w, h);
@@ -534,9 +520,17 @@ hb_raster_paint_push_clip_rectangle (hb_paint_funcs_t *pfuncs HB_UNUSED,
     return;
   }
 
-  /* All paths below except rect-on-rect run a full clip-buffer pass. */
+  /* All paths below except rect-on-rect run a clip-buffer pass, over the
+   * part of the rectangle's bounding box that the old clip can cover. */
+  int iy0_i = hb_max (py0, (int) old_clip.min_y);
+  int iy1_i = hb_min (py1, (int) old_clip.max_y);
+  int ix0_i = hb_max (px0, (int) old_clip.min_x);
+  int ix1_i = hb_min (px1, (int) old_clip.max_x);
+  bool overlaps = ix0_i < ix1_i && iy0_i < iy1_i;
+
   if (!(is_axis_aligned && old_clip.is_rect) &&
-      unlikely (!c->charge_work ((int64_t) w * h)))
+      unlikely (!c->charge_work (overlaps ?
+				 (int64_t) (ix1_i - ix0_i) * (iy1_i - iy0_i) : 0)))
   {
     hb_raster_paint_push_empty_clip (c, w, h);
     return;
@@ -558,21 +552,13 @@ hb_raster_paint_push_clip_rectangle (hb_paint_funcs_t *pfuncs HB_UNUSED,
   {
     /* Fast path: intersect an axis-aligned rect with an existing alpha clip. */
     new_clip.is_rect = false;
-    size_t clip_size = (size_t) new_clip.stride * h;
-    if (unlikely (clip_size > HB_RASTER_MAX_BUFFER_SIZE ||
-                  !new_clip.alpha.resize ((unsigned) clip_size)))
+    if (unlikely (!new_clip.alloc_alpha ()))
     {
       hb_raster_paint_push_empty_clip (c, w, h);
       return;
     }
-    hb_memset (new_clip.alpha.arrayZ, 0, (unsigned) clip_size);
 
-    int iy0_i = hb_max (py0, (int) old_clip.min_y);
-    int iy1_i = hb_min (py1, (int) old_clip.max_y);
-    int ix0_i = hb_max (px0, (int) old_clip.min_x);
-    int ix1_i = hb_min (px1, (int) old_clip.max_x);
-
-    if (ix0_i < ix1_i && iy0_i < iy1_i)
+    if (overlaps)
     {
       unsigned iy0 = (unsigned) iy0_i;
       unsigned iy1 = (unsigned) iy1_i;
@@ -595,14 +581,11 @@ hb_raster_paint_push_clip_rectangle (hb_paint_funcs_t *pfuncs HB_UNUSED,
   {
     /* General case: rasterize transformed quad as alpha mask */
     new_clip.is_rect = false;
-    size_t clip_size = (size_t) new_clip.stride * h;
-    if (unlikely (clip_size > HB_RASTER_MAX_BUFFER_SIZE ||
-                  !new_clip.alpha.resize ((unsigned) clip_size)))
+    if (unlikely (!new_clip.alloc_alpha ()))
     {
       hb_raster_paint_push_empty_clip (c, w, h);
       return;
     }
-    hb_memset (new_clip.alpha.arrayZ, 0, (unsigned) clip_size);
 
     /* Convert quad corners to pixel-relative coords */
     float qx[4], qy[4];
@@ -616,14 +599,10 @@ hb_raster_paint_push_clip_rectangle (hb_paint_funcs_t *pfuncs HB_UNUSED,
 
     /* For each pixel in the bounding box, test if inside the quad
      * using cross-product edge tests (winding order). */
-    int iy0_i = hb_max (py0, (int) old_clip.min_y);
-    int iy1_i = hb_min (py1, (int) old_clip.max_y);
-    int ix0_i = hb_max (px0, (int) old_clip.min_x);
-    int ix1_i = hb_min (px1, (int) old_clip.max_x);
     new_clip.min_x = w; new_clip.min_y = h;
     new_clip.max_x = 0; new_clip.max_y = 0;
 
-    if (ix0_i < ix1_i && iy0_i < iy1_i)
+    if (overlaps)
     {
       unsigned iy0 = (unsigned) iy0_i;
       unsigned iy1 = (unsigned) iy1_i;
