@@ -68,6 +68,10 @@ struct hb_raster_clip_t
     max_y = h;
   }
 
+  /* Nothing is painted through an empty clip. */
+  bool is_empty () const
+  { return min_x >= max_x || min_y >= max_y; }
+
   void update_bounds_from_rect ()
   {
     min_x = (unsigned) hb_max (rect_x0, 0);

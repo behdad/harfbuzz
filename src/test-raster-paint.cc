@@ -153,6 +153,36 @@ main ()
 			(x >= 8 && x < 24 && y >= 8 && y < 24 ? 255 : 0));
   hb_raster_image_destroy (image);
 
+  /* A mask is rendered only as far as the clip it is used within can
+   * show it, so a layer costs what it paints, however large its outline... */
+  hb_raster_paint_set_extents (paint, &wide);
+  push_box_clip (funcs, paint, 100.f, 100.f, 108.f, 108.f);
+  before = paint->pixel_remaining;
+  push_box_clip (funcs, paint, -4096.f, -4096.f, 4096.f, 4096.f);
+  hb_always_assert (before - paint->pixel_remaining < 16 * 8 * 8);
+  hb_paint_color (funcs, paint, false, HB_COLOR (255, 255, 255, 255));
+  hb_paint_pop_clip (funcs, paint);
+  hb_paint_pop_clip (funcs, paint);
+
+  /* ...and next to nothing within a clip that shows nothing. */
+  push_box_clip (funcs, paint, 2000.f, 2000.f, 2008.f, 2008.f);
+  before = paint->pixel_remaining;
+  push_box_clip (funcs, paint, -4096.f, -4096.f, 4096.f, 4096.f);
+  hb_always_assert (before - paint->pixel_remaining < 8 * 8);
+  hb_paint_color (funcs, paint, false, HB_COLOR (255, 255, 255, 255));
+  hb_paint_pop_clip (funcs, paint);
+  hb_paint_pop_clip (funcs, paint);
+
+  image = hb_raster_paint_render (paint);
+  hb_always_assert (image);
+  hb_raster_image_get_extents (image, &extents);
+  pixels = hb_raster_image_get_buffer (image);
+  for (unsigned y = 0; y < wide.height; y++)
+    for (unsigned x = 0; x < wide.width; x++)
+      hb_always_assert (pixels[y * extents.stride + x * 4 + 3] ==
+			(x >= 100 && x < 108 && y >= 100 && y < 108 ? 255 : 0));
+  hb_raster_image_destroy (image);
+
   hb_raster_paint_destroy (paint);
   return 0;
 }
