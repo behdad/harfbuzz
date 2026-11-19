@@ -219,7 +219,7 @@
  * which the outline work budget cannot see.  Unsigned (not size_t like the
  * SVG-table limit above) to match hb_vector_buf_t's unsigned length arithmetic. */
 #ifndef HB_VECTOR_MAX_DOCUMENT_SIZE
-#define HB_VECTOR_MAX_DOCUMENT_SIZE ((unsigned) 16 << 20)
+#define HB_VECTOR_MAX_DOCUMENT_SIZE ((unsigned) 40 << 20)
 #endif
 
 #ifndef HB_RASTER_MAX_BUFFER_SIZE
@@ -266,7 +266,7 @@
 /* The common finite default for one top-level glyph rendering session.
  * Nested outline and paint work shares the same live counter. */
 #ifndef HB_BUDGET_GLYPH
-#define HB_BUDGET_GLYPH ((int64_t) 1 << 24)
+#define HB_BUDGET_GLYPH ((int64_t) 1 << 25)
 #endif
 
 /* Precharge COST * MULT.  Callers bound COST and MULT structurally, and live
