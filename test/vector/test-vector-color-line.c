@@ -99,8 +99,10 @@ main (int argc, char **argv)
 		 "<stop offset=\"1\" stop-color=\"rgb(0,76,255)\"/>") == 1);
   render (HB_VECTOR_FORMAT_PDF, 'b');
   assert (count ("/Coords [50 500 650 500]") == 1);
-  assert (count ("/Bounds [0.5 0.5]") == 1);
-  assert (count ("/C0 [1 0 0]") == 2 && count ("/C1 [0 0.298 1]") == 2);
+  assert (count ("/Bounds [0.5]") == 1);
+  assert (count ("/FunctionType 2") == 2);
+  assert (count ("/C0 [1 0 0]\n/C1 [1 0 0]") == 1);
+  assert (count ("/C0 [0 0.298 1]\n/C1 [0 0.298 1]") == 1);
   assert (count ("/Extend [true true]") == 1);
 
   /* c: the same at 0.125 of circles growing from 100 to 500: red
@@ -115,7 +117,7 @@ main (int argc, char **argv)
 		 "<stop offset=\"1\" stop-color=\"rgb(0,76,255)\"/>") == 1);
   render (HB_VECTOR_FORMAT_PDF, 'c');
   assert (count ("/Coords [500 500 0 500 500 350]") == 1);
-  assert (count ("/Bounds [0.4286 0.4286]") == 1);
+  assert (count ("/Bounds [0.4286]") == 1);
   assert (count ("/Extend [true true]") == 1);
 
   /* d, e: nothing if the color line repeats or reflects. */
@@ -158,8 +160,9 @@ main (int argc, char **argv)
 		 "<stop offset=\"1\" stop-color=\"rgb(0,76,255)\"/>") == 1);
   assert (count ("<stop ") == 4);
   render (HB_VECTOR_FORMAT_PDF, 'i');
-  assert (count ("/Bounds [0.5 0.5]") == 1);
-  assert (count ("/C0 [1 0 0]") == 2 && count ("/C1 [0 0.298 1]") == 2);
+  assert (count ("/Bounds [0.5]") == 1);
+  assert (count ("/C0 [1 0 0]\n/C1 [1 0 0]") == 1);
+  assert (count ("/C0 [0 0.298 1]\n/C1 [0 0.298 1]") == 1);
   assert (count ("/C0 [0 1 0]") == 0 && count ("/C1 [0 1 0]") == 0);
 
   hb_blob_destroy (blob);

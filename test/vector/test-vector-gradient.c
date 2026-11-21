@@ -187,7 +187,7 @@ check (const hb_color_stop_t *stops, unsigned count)
   }
 
   /* PDF writes a color function and, with any alpha, an alpha function
-   * for each pair of the same stops. */
+   * for each pair of the same stops that are apart. */
   char *pdf = render (HB_VECTOR_FORMAT_PDF, &line);
   unsigned functions = 0;
   for (const char *p = pdf; (p = strstr (p, "/FunctionType 2")); p++)
@@ -196,7 +196,11 @@ check (const hb_color_stop_t *stops, unsigned count)
   for (unsigned i = 0; i < count; i++)
     if (hb_color_get_alpha (stops[i].color) != 255)
       translucent = 1;
-  assert (functions == (n - 1) * (translucent ? 2 : 1));
+  unsigned pieces = 0;
+  for (unsigned i = 0; i + 1 < n; i++)
+    if (written[i].offset != written[i + 1].offset)
+      pieces++;
+  assert (functions == pieces * (translucent ? 2 : 1));
   free (pdf);
 
   return n;

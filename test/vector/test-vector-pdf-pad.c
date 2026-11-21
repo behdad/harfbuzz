@@ -30,12 +30,17 @@
  *
  * So it is where the color line changes fast at its end: pdfium goes
  * on after a shading in the last of the 256 samples that it takes of
- * the function, at 255/256, which is then short of the last color. */
+ * the function, at 255/256, which is then short of the last color.
+ *
+ * The function of a shading has a piece for each stretch of the color
+ * line, between /Bounds that grow from each to the next: check that
+ * two stops at one offset have no piece of no length between them. */
 
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <hb.h>
@@ -102,6 +107,72 @@ has (const char *needle)
   return 0;
 }
 
+/* Checks the stitching functions of the document: each has a piece
+ * more than it has /Bounds, which grow from each to the next and are
+ * inside its /Domain, and two /Encode numbers for each piece. */
+static void
+check_stitching (void)
+{
+  static const char type[] = "/FunctionType 3";
+  const unsigned type_len = sizeof (type) - 1;
+  for (unsigned i = 0; i + type_len <= doc_len; i++)
+  {
+    if (memcmp (doc + i, type, type_len))
+      continue;
+
+    /* The dictionary, up to its end. */
+    char dict[1024];
+    unsigned n = 0;
+    while (i + n + 2 <= doc_len && memcmp (doc + i + n, ">>", 2))
+    {
+      assert (n + 1 < sizeof (dict));
+      dict[n] = doc[i + n];
+      n++;
+    }
+    dict[n] = '\0';
+
+    const char *domain = strstr (dict, "/Domain [");
+    const char *functions = strstr (dict, "/Functions [");
+    const char *bounds = strstr (dict, "/Bounds [");
+    const char *encode = strstr (dict, "/Encode [");
+    assert (domain && functions && bounds && encode);
+
+    char *end;
+    double from = strtod (domain + strlen ("/Domain ["), &end);
+    double to = strtod (end, &end);
+    assert (from < to);
+
+    unsigned n_functions = 0;
+    for (const char *p = functions; *p != ']'; p++)
+      if (*p == 'R')
+	n_functions++;
+
+    unsigned n_bounds = 0;
+    double last = from;
+    for (const char *p = bounds + strlen ("/Bounds [");; n_bounds++)
+    {
+      double bound = strtod (p, &end);
+      if (end == p)
+	break;
+      assert (bound > last && bound < to);
+      last = bound;
+      p = end;
+    }
+
+    unsigned n_encode = 0;
+    for (const char *p = encode + strlen ("/Encode [");; n_encode++)
+    {
+      strtod (p, &end);
+      if (end == p)
+	break;
+      p = end;
+    }
+
+    assert (n_functions == n_bounds + 1);
+    assert (n_encode == 2 * n_functions);
+  }
+}
+
 /* Paints a gradient whose color line has @count stops at @offsets: along
  * the x axis from 0 to @length if @r1 is negative, and otherwise in
  * circles around the origin of radius @r0 at 0 and @r1 at 1. */
@@ -139,6 +210,8 @@ render (hb_vector_format_t format,
   assert (blob);
   hb_vector_paint_destroy (paint);
   doc = hb_blob_get_data (blob, &doc_len);
+  if (format == HB_VECTOR_FORMAT_PDF)
+    check_stitching ();
   return blob;
 }
 
@@ -151,15 +224,21 @@ main (void)
   static const float near_end[3] = {0, 0.96f, 1};
   static const float halfway[3] = {0, 0.5f, 1};
   static const float at_start_near_end[4] = {0, 0, 0.96f, 1};
+  static const float in_middle[4] = {0, 0.5f, 0.5f, 1};
+  static const float close[4] = {0, 0.5f, 0.50004f, 1};
   hb_blob_t *blob;
 
   /* Red and blue at 0, green at 1, along 150: red before x = 0.  The
    * shading starts a fifteenth earlier, at -10, and is red up to a
-   * sixteenth of the way. */
+   * sixteenth of the way, where it turns blue at once: there is no
+   * piece from red to blue. */
   blob = render (HB_VECTOR_FORMAT_PDF, 150, 0, -1, 3, at_start, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [-10 0 150 0]"));
-  assert (has ("/Bounds [0.0625 0.0625]"));
+  assert (has ("/Bounds [0.0625]"));
+  assert (has ("/Encode [0 1 0 1] >>"));
   assert (has ("/C0 [1 0 0]\n/C1 [1 0 0]"));
+  assert (has ("/C0 [0 0 1]\n/C1 [0 1 0]"));
+  assert (!has ("/C0 [1 0 0]\n/C1 [0 0 1]"));
   assert (has ("/Extend [true true]"));
   hb_blob_destroy (blob);
 
@@ -167,21 +246,40 @@ main (void)
    * ends a fifteenth later, and is green for its last sixteenth. */
   blob = render (HB_VECTOR_FORMAT_PDF, 150, 0, -1, 3, at_end, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [0 0 160 0]"));
-  assert (has ("/Bounds [0.9375 0.9375]"));
+  assert (has ("/Bounds [0.9375]"));
   assert (has ("/C0 [0 1 0]\n/C1 [0 1 0]"));
   hb_blob_destroy (blob);
 
   /* Both, along 140: a fourteenth more at either end. */
   blob = render (HB_VECTOR_FORMAT_PDF, 140, 0, -1, 4, at_both, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [-10 0 150 0]"));
-  assert (has ("/Bounds [0.0625 0.0625 0.9375 0.9375]"));
+  assert (has ("/Bounds [0.0625 0.9375]"));
   hb_blob_destroy (blob);
 
   /* A color line that repeats has nothing before it, and gets no
-   * stretch of red. */
+   * stretch of red: it goes from blue to green, in one piece, and red,
+   * which has no length of it, is not written. */
   blob = render (HB_VECTOR_FORMAT_PDF, 150, 0, -1, 3, at_start, HB_PAINT_EXTEND_REPEAT);
+  assert (has ("/C0 [0 0 1]\n/C1 [0 1 0]"));
+  assert (!has ("/C0 [1 0 0]"));
+  assert (!has ("/FunctionType 3 /Domain [0 1]"));
+  hb_blob_destroy (blob);
+
+  /* Blue and green both halfway: the function has a piece from red to
+   * blue and one from green to red, and one bound between them. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 150, 0, -1, 4, in_middle, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 150 0]"));
+  assert (has ("/Bounds [0.5]"));
+  assert (has ("/Encode [0 1 0 1] >>"));
   assert (has ("/C0 [1 0 0]\n/C1 [0 0 1]"));
-  assert (!has ("/C0 [1 0 0]\n/C1 [1 0 0]"));
+  assert (has ("/C0 [0 1 0]\n/C1 [1 0 0]"));
+  assert (!has ("/C0 [0 0 1]\n/C1 [0 1 0]"));
+  hb_blob_destroy (blob);
+
+  /* So it is if the two are less apart than offsets are written to. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 150, 0, -1, 4, close, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Bounds [0.5]"));
+  assert (!has ("/C0 [0 0 1]\n/C1 [0 1 0]"));
   hb_blob_destroy (blob);
 
   /* SVG has the color of the first stop before the color line, and
@@ -197,14 +295,14 @@ main (void)
    * starts a fifteenth earlier, at a radius of 20. */
   blob = render (HB_VECTOR_FORMAT_PDF, 0, 30, 180, 3, at_start, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [0 0 20 0 0 180]"));
-  assert (has ("/Bounds [0.0625 0.0625]"));
+  assert (has ("/Bounds [0.0625]"));
   hb_blob_destroy (blob);
 
   /* From a radius of 6 to 156, a fifteenth earlier would be at a radius
    * of -4.  The shading starts halfway to zero, at 3. */
   blob = render (HB_VECTOR_FORMAT_PDF, 0, 6, 156, 3, at_start, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [0 0 3 0 0 156]"));
-  assert (has ("/Bounds [0.0196 0.0196]"));
+  assert (has ("/Bounds [0.0196]"));
   hb_blob_destroy (blob);
 
   /* From a radius of 0 nothing is painted before the color line, and
@@ -261,7 +359,7 @@ main (void)
    * of what it comes to before it, from -8, and a 128th after, to 120. */
   blob = render (HB_VECTOR_FORMAT_PDF, 119, 0, -1, 4, at_start_near_end, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [-8 0 120 0]"));
-  assert (has ("/Bounds [0.0625 0.0625 0.955 0.9922]"));
+  assert (has ("/Bounds [0.0625 0.955 0.9922]"));
   hb_blob_destroy (blob);
 
   /* Circles that shrink from 150 to nothing, with red and blue where
@@ -269,14 +367,14 @@ main (void)
    * stretch, a fifteenth, from a radius of 160. */
   blob = render (HB_VECTOR_FORMAT_PDF, 0, 150, 0, 4, at_start_near_end, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [0 0 160 0 0 0]"));
-  assert (has ("/Bounds [0.0625 0.0625 0.9625]"));
+  assert (has ("/Bounds [0.0625 0.9625]"));
   hb_blob_destroy (blob);
 
   /* The same with two stops at either end: those at the end are not
    * lengthened for, and the one after the color line is not written. */
   blob = render (HB_VECTOR_FORMAT_PDF, 0, 150, 0, 4, at_both, HB_PAINT_EXTEND_PAD);
   assert (has ("/Coords [0 0 160 0 0 0]"));
-  assert (has ("/Bounds [0.0625 0.0625]"));
+  assert (has ("/Bounds [0.0625]"));
   hb_blob_destroy (blob);
 
   /* SVG has the last color after the color line whatever comes

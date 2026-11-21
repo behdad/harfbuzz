@@ -1067,6 +1067,32 @@ hb_pdf_pad_color_line (hb_vector_paint_t *paint,
   }
 }
 
+/* The pieces of the function of the color line in @stops, which is
+ * sorted and goes from 0 to 1: the first of every two stops next to
+ * each other whose offsets are apart as they are written, which is to
+ * four decimals.  The /Bounds of a stitching function have to grow
+ * from each to the next, so there is no piece between two stops at
+ * one offset: the function changes at once there, from the piece that
+ * ends to the piece that starts, as the color line does. */
+static void
+hb_pdf_color_line_pieces (hb_array_t<const hb_color_stop_t> stops,
+			  hb_vector_t<unsigned> &pieces)
+{
+  hb_vector_buf_t start, end;
+  if (stops.length)
+    start.append_num (stops.arrayZ[0].offset, 4);
+  for (unsigned i = 0; i + 1 < stops.length; i++)
+  {
+    end.clear ();
+    end.append_num (stops.arrayZ[i + 1].offset, 4);
+    if (start.length == end.length &&
+	!hb_memcmp (start.arrayZ, end.arrayZ, end.length))
+      continue;
+    pieces.push (i);
+    hb_swap (start, end);
+  }
+}
+
 /* Build a PDF Type 2 (exponential interpolation) function for
  * a single alpha stop pair (DeviceGray, scalar output). */
 static void
@@ -1097,17 +1123,22 @@ hb_pdf_build_alpha_gradient_function_from_stops (hb_pdf_resources_t *res,
     return res->add_object (std::move (obj));
   }
 
-  if (count == 2)
+  hb_vector_t<unsigned> pieces;
+  hb_pdf_color_line_pieces (paint->color_stops_scratch.as_array (), pieces);
+
+  if (pieces.length < 2)
   {
+    unsigned i = pieces.length ? pieces.arrayZ[0] : 0;
+    unsigned j = pieces.length ? i + 1 : count - 1;
     hb_vector_buf_t obj;
     hb_pdf_build_alpha_interpolation_function (&obj,
-      hb_color_get_alpha (paint->color_stops_scratch.arrayZ[0].color) / 255.f,
-      hb_color_get_alpha (paint->color_stops_scratch.arrayZ[1].color) / 255.f);
+      hb_color_get_alpha (paint->color_stops_scratch.arrayZ[i].color) / 255.f,
+      hb_color_get_alpha (paint->color_stops_scratch.arrayZ[j].color) / 255.f);
     return res->add_object (std::move (obj));
   }
 
   hb_vector_t<unsigned> sub_func_ids;
-  for (unsigned i = 0; i + 1 < count; i++)
+  for (unsigned i : pieces)
   {
     hb_vector_buf_t sub;
     hb_pdf_build_alpha_interpolation_function (&sub,
@@ -1126,13 +1157,13 @@ hb_pdf_build_alpha_gradient_function_from_stops (hb_pdf_resources_t *res,
     obj.append_str (" 0 R");
   }
   obj.append_str ("]\n/Bounds [");
-  for (unsigned i = 1; i + 1 < count; i++)
+  for (unsigned i = 1; i < sub_func_ids.length; i++)
   {
     if (i > 1) obj.append_c (' ');
-    obj.append_num (paint->color_stops_scratch.arrayZ[i].offset, 4);
+    obj.append_num (paint->color_stops_scratch.arrayZ[pieces.arrayZ[i]].offset, 4);
   }
   obj.append_str ("]\n/Encode [");
-  for (unsigned i = 0; i + 1 < count; i++)
+  for (unsigned i = 0; i < sub_func_ids.length; i++)
   {
     if (i) obj.append_c (' ');
     obj.append_str ("0 1");
@@ -1181,19 +1212,24 @@ hb_pdf_build_gradient_function_from_stops (hb_pdf_resources_t *res,
     return res->add_object (std::move (obj));
   }
 
-  if (count == 2)
+  hb_vector_t<unsigned> pieces;
+  hb_pdf_color_line_pieces (paint->color_stops_scratch.as_array (), pieces);
+
+  if (pieces.length < 2)
   {
-    /* Two stops: single interpolation function. */
+    /* One piece: single interpolation function. */
+    unsigned i = pieces.length ? pieces.arrayZ[0] : 0;
+    unsigned j = pieces.length ? i + 1 : count - 1;
     hb_vector_buf_t obj;
     hb_pdf_build_interpolation_function (&obj,
-					  paint->color_stops_scratch.arrayZ[0].color,
-					  paint->color_stops_scratch.arrayZ[1].color);
+					  paint->color_stops_scratch.arrayZ[i].color,
+					  paint->color_stops_scratch.arrayZ[j].color);
     return res->add_object (std::move (obj));
   }
 
-  /* Multiple stops: create sub-functions and stitch. */
+  /* Multiple pieces: create sub-functions and stitch. */
   hb_vector_t<unsigned> sub_func_ids;
-  for (unsigned i = 0; i + 1 < count; i++)
+  for (unsigned i : pieces)
   {
     hb_vector_buf_t sub;
     hb_pdf_build_interpolation_function (&sub,
@@ -1218,16 +1254,16 @@ hb_pdf_build_gradient_function_from_stops (hb_pdf_resources_t *res,
 
   /* Bounds. */
   obj.append_str ("/Bounds [");
-  for (unsigned i = 1; i + 1 < count; i++)
+  for (unsigned i = 1; i < sub_func_ids.length; i++)
   {
     if (i > 1) obj.append_c (' ');
-    obj.append_num (paint->color_stops_scratch.arrayZ[i].offset, 4);
+    obj.append_num (paint->color_stops_scratch.arrayZ[pieces.arrayZ[i]].offset, 4);
   }
   obj.append_str ("]\n");
 
   /* Encode array. */
   obj.append_str ("/Encode [");
-  for (unsigned i = 0; i + 1 < count; i++)
+  for (unsigned i = 0; i < sub_func_ids.length; i++)
   {
     if (i) obj.append_c (' ');
     obj.append_str ("0 1");
