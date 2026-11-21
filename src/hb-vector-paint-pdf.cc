@@ -54,6 +54,39 @@
 
 /* ---- PDF object collector ---- */
 
+/* Appends the box of a form, in the form's own space, as its lower
+ * left corner and its upper right one or, with @sized, its width and
+ * height: the /BBox that what the form paints is clipped to, or a
+ * rectangle in the form that fills that.
+ *
+ * The box is the rectangle that a fill of everything is painted with,
+ * made bigger where @box, a rectangle around what the form paints,
+ * reaches past it.  A @box that is void is for a form that nothing is
+ * known to bound.
+ *
+ * The box is not made smaller to fit what it holds.  Viewers render a
+ * group over the extent of its box, and some paint the same content
+ * otherwise with another extent: poppler's cairo backend draws the
+ * edge of a luminosity mask that is set in a form under a rotation
+ * sharper or softer with the form's box, and its Splash backend does
+ * not antialias what a clip cuts in the last column of pixels of a
+ * group that is an odd number of them wide. */
+static void
+hb_pdf_append_box (hb_vector_buf_t &buf,
+		   const hb_extents_t<> &box,
+		   bool sized = false)
+{
+  hb_extents_t<> b (-32767.f, -32767.f, 32767.f, 32767.f);
+  b.union_ (box);
+  buf.append_num (b.xmin);
+  buf.append_c (' ');
+  buf.append_num (b.ymin);
+  buf.append_c (' ');
+  buf.append_num (sized ? b.xmax - b.xmin : b.xmax);
+  buf.append_c (' ');
+  buf.append_num (sized ? b.ymax - b.ymin : b.ymax);
+}
+
 struct hb_pdf_obj_t
 {
   hb_vector_buf_t data;
@@ -139,10 +172,13 @@ struct hb_pdf_resources_t
   /* Add ExtGState for painting a group: with blend mode @bm, if not
    * null, and through a soft mask, if @mask_id is not zero.  The mask
    * is the alpha of the transparency group that is object @mask_id or,
-   * with @inverse, one minus it.  Return resource name index. */
+   * with @inverse, one minus it, over @box at the least, which is to
+   * be around what is painted through it.  Return resource name
+   * index. */
   unsigned add_extgstate_group (const char *bm,
 				unsigned mask_id = 0,
-				bool inverse = false)
+				bool inverse = false,
+				const hb_extents_t<> &box = hb_extents_t<> ())
   {
     if (mask_id && inverse)
     {
@@ -152,10 +188,14 @@ struct hb_pdf_resources_t
        * over it through the alpha mask. */
       unsigned alpha_idx = add_extgstate_group (nullptr, mask_id);
       hb_vector_buf_t stream;
-      stream.append_str ("1 g\n-32767 -32767 65534 65534 re f\n/GS");
+      stream.append_str ("1 g\n");
+      hb_pdf_append_box (stream, box, true);
+      stream.append_str (" re f\n/GS");
       stream.append_unsigned (alpha_idx);
-      stream.append_str (" gs\n0 g\n-32767 -32767 65534 65534 re f\n");
-      mask_id = add_group (stream, true);
+      stream.append_str (" gs\n0 g\n");
+      hb_pdf_append_box (stream, box, true);
+      stream.append_str (" re f\n");
+      mask_id = add_group (stream, true, box);
     }
 
     hb_vector_buf_t obj;
@@ -178,8 +218,10 @@ struct hb_pdf_resources_t
 
   /* Add a Form XObject that is an isolated transparency group with
    * @stream as its content, in DeviceRGB or, for a group whose
-   * luminosity is a soft mask, DeviceGray.  Return object id. */
-  unsigned add_group (const hb_vector_buf_t &stream, bool gray = false)
+   * luminosity is a soft mask, DeviceGray.  Its /BBox holds @box, a
+   * rectangle around what it paints.  Return object id. */
+  unsigned add_group (const hb_vector_buf_t &stream, bool gray = false,
+		      const hb_extents_t<> &box = hb_extents_t<> ())
   {
     if (!resources_obj_id)
     {
@@ -190,12 +232,14 @@ struct hb_pdf_resources_t
     }
 
     /* The form is painted where its content would have been, so it
-     * inherits the transform and clip in effect there.  Its bounds
-     * in that space are not known; use the same all-covering box as
-     * the unbounded fills. */
+     * inherits the transform and clip in effect there, and its box
+     * is in that space.  Its content is clipped to the box, so that
+     * has to hold all of it, wherever it is. */
     hb_vector_buf_t form;
     form.append_str ("<< /Type /XObject /Subtype /Form\n");
-    form.append_str ("/BBox [-32767 -32767 32767 32767]\n");
+    form.append_str ("/BBox [");
+    hb_pdf_append_box (form, box);
+    form.append_str ("]\n");
     form.append_str (gray ? "/Group << /S /Transparency /CS /DeviceGray /I true >>\n"
 			  : "/Group << /S /Transparency /CS /DeviceRGB /I true >>\n");
     form.append_str ("/Resources ");
@@ -212,9 +256,10 @@ struct hb_pdf_resources_t
    * resource name index in @idx and, if not null, the object id in
    * @obj_id. */
   bool add_form_group (const hb_vector_buf_t &stream, unsigned *idx,
-		       unsigned *obj_id = nullptr)
+		       unsigned *obj_id = nullptr,
+		       const hb_extents_t<> &box = hb_extents_t<> ())
   {
-    unsigned form_id = add_group (stream);
+    unsigned form_id = add_group (stream, false, box);
     if (unlikely (!form_id))
       return false;
     if (obj_id)
@@ -632,10 +677,12 @@ hb_pdf_paint_fill_glyph (hb_paint_funcs_t *,
   body.append_c (' ');
   body.append_num (b, 4);
   body.append_str (" rg\n");
-  hb_pdf_emit_glyph_path (paint, font, glyph, &body);
+  hb_extents_t<> extents;
+  hb_pdf_emit_glyph_path (paint, font, glyph, &body, &extents);
   body.append_str ("f\n");
   if (scoped)
     body.append_str ("Q\n");
+  paint->painted (extents);
 }
 
 static void
@@ -794,6 +841,7 @@ hb_pdf_paint_solid_color (hb_vector_paint_t *paint, hb_color_t c)
   body.append_str ("-32767 -32767 65534 65534 re f\n");
   if (scoped)
     body.append_str ("Q\n");
+  paint->painted ();
 }
 
 static void
@@ -966,6 +1014,11 @@ hb_pdf_paint_image (hb_paint_funcs_t *,
   body.append_unsigned (im_idx);
   body.append_str (" Do\nQ\n");
 
+  hb_extents_t<> e (*extents);
+  paint->painted (hb_extents_t<> {hb_min (paint->sx (e.xmin), paint->sx (e.xmax)),
+				  hb_min (paint->sy (e.ymin), paint->sy (e.ymax)),
+				  hb_max (paint->sx (e.xmin), paint->sx (e.xmax)),
+				  hb_max (paint->sy (e.ymin), paint->sy (e.ymax))});
   return true;
 }
 
@@ -1145,6 +1198,48 @@ hb_pdf_color_line_pieces (hb_array_t<const hb_color_stop_t> stops,
     pieces.push (i);
     hb_swap (start, end);
   }
+}
+
+/* A rectangle, in the current space, around what the open clips let
+ * through: what the box of a form has to hold that is painted there
+ * and fills all of it, as a gradient does.  Void where the clips do
+ * not bound that. */
+static hb_extents_t<>
+hb_pdf_clip_box (const hb_vector_paint_t *paint)
+{
+  hb_extents_t<> box;
+  hb_vector_paint_t::box_around (paint->open_clips (), paint->current_ctm (), &box);
+  return box;
+}
+
+/* Adds the soft mask that a gradient is painted through for its
+ * alphas, which are the shading that is object @alpha_sh_id.  The mask
+ * is a form, and the shading is clipped to the form's /BBox: that is
+ * a large box around (@x, @y), a point of the gradient, made bigger
+ * where what the open clips let through, which is all that shows of
+ * the gradient, reaches past it.  Returns the ExtGState resource
+ * index. */
+static unsigned
+hb_pdf_add_gradient_smask (const hb_vector_paint_t *paint,
+			   hb_pdf_resources_t *res,
+			   unsigned alpha_sh_id,
+			   float x, float y)
+{
+  const float R = 32767.f;
+  float bx = x - R - 1, by = y - R - 1, bw = 2 * (R + 1), bh = 2 * (R + 1);
+  hb_extents_t<> box = hb_pdf_clip_box (paint);
+  /* The large box as it is, unless it does not hold all of that. */
+  if (!box.is_void () &&
+      !(bx <= box.xmin && by <= box.ymin && box.xmax <= bx + bw && box.ymax <= by + bh))
+  {
+    float x1 = hb_max (bx + bw, box.xmax), y1 = hb_max (by + bh, box.ymax);
+    bx = hb_min (bx, box.xmin);
+    by = hb_min (by, box.ymin);
+    bw = x1 - bx;
+    bh = y1 - by;
+  }
+  return res->add_extgstate_smask (alpha_sh_id, bx, by, bw, bh,
+				   paint->get_precision ());
 }
 
 /* Build a PDF Type 2 (exponential interpolation) function for
@@ -1876,14 +1971,18 @@ hb_pdf_paint_gradient_periods (hb_vector_paint_t *paint,
    * of their alphas, which would count twice where two periods
    * overlap. */
   bool needs_alpha = hb_pdf_gradient_needs_alpha (paint->color_stops_scratch);
+  paint->painted ();
   if (periods.shading_type == 2 && !needs_alpha)
   {
     body.append_len (colors.arrayZ, colors.length);
     return;
   }
 
+  /* The periods fill what the open clips let through, wherever that
+   * is, and so do the groups they are painted in. */
+  hb_extents_t<> box = hb_pdf_clip_box (paint);
   unsigned form_idx;
-  if (unlikely (!res->add_form_group (colors, &form_idx)))
+  if (unlikely (!res->add_form_group (colors, &form_idx, nullptr, box)))
     return;
 
   if (needs_alpha)
@@ -1893,7 +1992,7 @@ hb_pdf_paint_gradient_periods (hb_vector_paint_t *paint,
 			  hb_pdf_build_alpha_gradient_function_from_stops (res, paint),
 			  &alphas);
 
-    unsigned mask_id = res->add_group (alphas, true);
+    unsigned mask_id = res->add_group (alphas, true, box);
     if (unlikely (!mask_id))
       return;
 
@@ -2029,15 +2128,11 @@ hb_pdf_paint_linear_gradient (hb_paint_funcs_t *,
     /* An axial shading is not confined to the rectangle spanned by its axis:
      * it extends perpendicular to the axis, and along it with /Extend, and the
      * RGB fill relies on that.  The soft-mask form clips the alpha shading to
-     * its /BBox, so give it a large box covering the whole painted area (as
-     * the sweep gradient does) instead of the axis box, which is zero-area for
-     * a horizontal or vertical gradient and otherwise crops the fill. */
-    const float R = 32767.f;
-    float scx = paint->sx (gx0), scy = paint->sy (gy0);
-    unsigned gs_idx = res->add_extgstate_smask (alpha_sh_id,
-						scx - R - 1, scy - R - 1,
-						2 * (R + 1), 2 * (R + 1),
-						paint->get_precision ());
+     * its /BBox, so give it a box covering the whole painted area instead of
+     * the axis box, which is zero-area for a horizontal or vertical gradient
+     * and otherwise crops the fill. */
+    unsigned gs_idx = hb_pdf_add_gradient_smask (paint, res, alpha_sh_id,
+						 paint->sx (gx0), paint->sy (gy0));
     /* Scoped, so the soft mask does not leak into later paints. */
     body.append_str ("q\n/GS");
     body.append_unsigned (gs_idx);
@@ -2049,6 +2144,7 @@ hb_pdf_paint_linear_gradient (hb_paint_funcs_t *,
   body.append_str (" sh\n");
   if (needs_alpha)
     body.append_str ("Q\n");
+  paint->painted ();
 }
 
 /* Gives a radial gradient, whose color line is in
@@ -2212,15 +2308,11 @@ hb_pdf_paint_radial_gradient (hb_paint_funcs_t *,
     /* The alpha shading extends beyond the circles with /Extend, and the RGB
      * fill relies on that, so the soft-mask form must cover the whole painted
      * area rather than just the enclosing square of the outer circle (which
-     * crops the padded region).  Use a large box as the sweep gradient does. */
-    const float R = 32767.f;
+     * crops the padded region). */
     float cx = (gr1 >= gr0) ? gx1 : gx0;
     float cy = (gr1 >= gr0) ? gy1 : gy0;
-    float scx = paint->sx (cx), scy = paint->sy (cy);
-    unsigned gs_idx = res->add_extgstate_smask (alpha_sh_id,
-						scx - R - 1, scy - R - 1,
-						2 * (R + 1), 2 * (R + 1),
-						paint->get_precision ());
+    unsigned gs_idx = hb_pdf_add_gradient_smask (paint, res, alpha_sh_id,
+						 paint->sx (cx), paint->sy (cy));
     /* Scoped, so the soft mask does not leak into later paints. */
     body.append_str ("q\n/GS");
     body.append_unsigned (gs_idx);
@@ -2232,6 +2324,7 @@ hb_pdf_paint_radial_gradient (hb_paint_funcs_t *,
   body.append_str (" sh\n");
   if (needs_alpha)
     body.append_str ("Q\n");
+  paint->painted ();
 }
 
 
@@ -2521,6 +2614,7 @@ hb_pdf_paint_sweep_gradient (hb_paint_funcs_t *,
   body.append_str (" sh\n");
   if (masked)
     body.append_str ("Q\n");
+  paint->painted ();
 }
 
 static const char *
@@ -2586,17 +2680,27 @@ struct hb_pdf_form_t
 {
   unsigned idx = 0;	/* It is painted with `/Fm<idx> Do`. */
   unsigned obj_id = 0;	/* Zero if the group was empty and was not written. */
+  /* A rectangle around what it paints, in the space that it is
+   * painted in, which its /BBox holds.  Void if nothing is known to
+   * bound that. */
+  hb_extents_t<> box;
 };
 
+/* Writes @group as a form.  What it has painted is within @bounds,
+ * which are in the space of the document's root; the form is painted
+ * in the space that @ctm is the transform from to that of the root. */
 static bool
 hb_pdf_add_form (hb_pdf_resources_t *res,
 		 const hb_vector_buf_t &group,
+		 const hb_bounds_t<> &bounds,
+		 const hb_transform_t<> &ctm,
 		 hb_pdf_form_t *form)
 {
   if (!group.length)
     return true;
+  hb_vector_paint_t::box_around (bounds, ctm, &form->box);
   if (unlikely (group.in_error () ||
-		!res->add_form_group (group, &form->idx, &form->obj_id)))
+		!res->add_form_group (group, &form->idx, &form->obj_id, form->box)))
   {
     /* Make render fail rather than give a document missing a group. */
     res->overflowed = true;
@@ -2636,7 +2740,8 @@ hb_pdf_paint_form (hb_pdf_resources_t *res,
   {
     unsigned gs_idx = res->add_extgstate_group (bm,
 						mask != HB_PDF_MASK_NONE ? other.obj_id : 0,
-						mask == HB_PDF_MASK_OUT);
+						mask == HB_PDF_MASK_OUT,
+						form.box);
     body.append_str ("/GS");
     body.append_unsigned (gs_idx);
     body.append_str (" gs\n");
@@ -2675,16 +2780,20 @@ hb_pdf_composite (hb_vector_paint_t *paint,
 {
   auto &dst = paint->current_group ();
 
+  /* The source was painted in the current space. */
   hb_pdf_form_t src;
   if (mode != HB_PAINT_COMPOSITE_MODE_CLEAR &&
-      unlikely (!hb_pdf_add_form (res, group, &src)))
+      unlikely (!hb_pdf_add_form (res, group, group.bounds,
+				  paint->current_ctm (), &src)))
     return;
 
   /* The backdrop is all that the current group has painted, and the
    * result takes its place.  If the group has transforms or clips
    * open, the source was painted under them: close them, to make the
    * backdrop a unit, put the source under copies of them, and open
-   * them again after the result for what is painted next. */
+   * them again after the result for what is painted next.  The two
+   * are then in the space that the group starts in, and so are the
+   * masks they are painted through. */
   hb_vector_buf_t opening;
   unsigned n_scopes = paint->close_scopes ("Q\n", &opening);
   if (unlikely (dst.in_error ()))
@@ -2699,17 +2808,21 @@ hb_pdf_composite (hb_vector_paint_t *paint,
     for (unsigned i = 0; i < n_scopes; i++)
       under.append_str ("Q\n");
     src = hb_pdf_form_t ();
-    if (unlikely (!hb_pdf_add_form (res, under, &src)))
+    if (unlikely (!hb_pdf_add_form (res, under, group.bounds,
+				    paint->group_ctm (), &src)))
       return;
   }
 
   hb_vector_paint_group_t backdrop_group = std::move (dst);
   dst.referred = 0;
   dst.blended = false;
+  /* What is left of the two is within the bounds of both. */
+  dst.bounds.union_ (group.bounds);
   hb_pdf_form_t backdrop;
   if (mode != HB_PAINT_COMPOSITE_MODE_CLEAR &&
       mode != HB_PAINT_COMPOSITE_MODE_SRC &&
-      unlikely (!hb_pdf_add_form (res, backdrop_group, &backdrop)))
+      unlikely (!hb_pdf_add_form (res, backdrop_group, backdrop_group.bounds,
+				  paint->group_ctm (), &backdrop)))
     return;
 
   uint64_t s = group.work (), d = backdrop_group.work ();
@@ -2824,9 +2937,11 @@ hb_pdf_paint_pop_group (hb_paint_funcs_t *,
   /* Source-over, or a blend mode, which blends with all that the
    * current group has painted, whatever is open in it. */
   hb_pdf_form_t form;
-  if (unlikely (!hb_pdf_add_form (res, group, &form)))
+  if (unlikely (!hb_pdf_add_form (res, group, group.bounds,
+				  paint->current_ctm (), &form)))
     return;
   hb_pdf_paint_form (res, body, form, bm);
+  body.bounds.union_ (group.bounds);
   if (form.obj_id)
     body.referred += group.work ();
   if (bm)
@@ -2915,7 +3030,9 @@ hb_vector_paint_render_pdf (hb_vector_paint_t *paint)
   if (paint->group_stack.arrayZ[0].blended)
   {
     hb_pdf_form_t form;
-    if (unlikely (!res || !hb_pdf_add_form (res, root, &form)))
+    if (unlikely (!res || !hb_pdf_add_form (res, root,
+					    paint->group_stack.arrayZ[0].bounds,
+					    HB_TRANSFORM_IDENTITY, &form)))
       return nullptr;
     hb_pdf_paint_form (res, isolated, form);
     if (unlikely (isolated.in_error ()))

@@ -73,8 +73,9 @@ struct hb_vector_paint_group_t : hb_vector_buf_t
   bool blended = false;
 
   /* The bounds of what the group has painted, in the space of the
-   * document's root, as far as hb_vector_paint_t::painted() was told.
-   * The SVG writer keeps them, for the masks it composites with. */
+   * document's root, as far as hb_vector_paint_t::painted() was told:
+   * for the masks that the SVG writer composites with, and for the
+   * forms that the PDF writer puts groups in. */
   hb_bounds_t<> bounds = hb_bounds_t<> (hb_bounds_t<>::EMPTY);
 
   uint64_t work () const { return length + referred; }
