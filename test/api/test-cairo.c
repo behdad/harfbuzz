@@ -211,6 +211,12 @@ test_hb_cairo_image_not_square (void)
   g_test_skip ("Cairo user-font rendering has a pre-existing lock-order inversion under TSan");
   return;
 #endif
+#ifndef CAIRO_HAS_PNG_FUNCTIONS
+  /* hb-cairo has cairo read a PNG image.  Where cairo cannot, it paints
+   * none, and these glyphs have no outline to paint instead. */
+  g_test_skip ("This cairo has no PNG functions");
+  return;
+#endif
   if (cairo_version () < CAIRO_VERSION_ENCODE (1, 18, 0))
   {
     g_test_skip ("This cairo has no color user fonts");
