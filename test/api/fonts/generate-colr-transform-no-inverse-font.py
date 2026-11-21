@@ -57,6 +57,22 @@ def nested(count, matrix, paint):
     return paint
 
 
+def chain(matrices, paint):
+    for matrix in reversed(matrices):
+        paint = transform(matrix, paint)
+    return paint
+
+
+# The green square at half its size, around the middle.
+HALF = dict(Format=22, scale=0.5, centerX=500, centerY=500, Paint=square(solid(GREEN)))
+
+# Two transforms and what undoes each.  Q, D, D, Q one in another come
+# to the matrix (a + b, a - b, a - b, a + b) with a = 1048576 and
+# b = 1 / 4194304: its determinant is 1, the difference of two products
+# of about 1.1e12 each.
+Q, Q_BACK = (1, 1, 1, -1, 0, 0), (0.5, 0.5, 0.5, -0.5, 0, 0)
+D, D_BACK = (1024, 0, 0, 1 / 2048, 0, 0), (1 / 1024, 0, 0, 2048, 0, 0)
+
 CASES = [
     transform(ZERO, square(solid(GREEN))),  # a
     scale(0, 1, square(LINEAR)),  # b: everything onto the line x = 0
@@ -78,7 +94,11 @@ CASES = [
     nested(40, (32767, 0, 0, 32767, 0, 0), square(solid(GREEN))),
     # h: a transform that has an inverse, which does paint: the green
     # square at half its size, around the middle
-    dict(Format=22, scale=0.5, centerX=500, centerY=500, Paint=square(solid(GREEN))),
+    HALF,
+    # i: transforms that each have an inverse, one in another, and
+    # change nothing together, though on the way they squeeze the plane
+    # close to a line; these paint too
+    chain([Q, D, D, Q, Q_BACK, D_BACK, D_BACK, Q_BACK], HALF),
 ]
 
 

@@ -135,15 +135,22 @@ hb_cairo_draw_get_funcs ()
 
 #ifdef HAVE_CAIRO_USER_FONT_FACE_SET_RENDER_COLOR_GLYPH_FUNC
 
-/* Whether cairo takes @m for a matrix that has an inverse.  This is its
- * own check, with room for the last bits of the determinant to come out
- * differently there. */
+/* Whether cairo takes @m for a matrix that has an inverse: one whose
+ * determinant is finite and not zero, as cairo computes it.  That is
+ * what cairo_matrix_invert() goes by, except for a matrix that only
+ * scales: it inverts that one without looking at the determinant,
+ * which can be zero or infinite where neither scale is. */
 static bool
 hb_cairo_matrix_has_inverse (const cairo_matrix_t *m)
 {
-  double a = m->xx * m->yy, b = m->yx * m->xy;
-  double det = a - b;
-  return std::isfinite (det) && fabs (det) > 1e-12 * (fabs (a) + fabs (b));
+  if (m->xy == 0. && m->yx == 0.)
+  {
+    double det = m->xx * m->yy;
+    return std::isfinite (det) && det != 0.;
+  }
+
+  cairo_matrix_t inverse = *m;
+  return cairo_matrix_invert (&inverse) == CAIRO_STATUS_SUCCESS;
 }
 
 static void

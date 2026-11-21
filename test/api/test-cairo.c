@@ -50,17 +50,23 @@ test_hb_cairo_transform_no_inverse (void)
 
   /* Each glyph paints a red bar on the left, then a green square
    * under a transform, then a blue bar on the right.  In all but the
-   * last glyph the transform has no inverse: a scale by zero, say, or
-   * forty scales one in another that come to zero.  What it paints
-   * has no area, so the glyph is the two bars.  cairo refuses such a
-   * matrix, and a context that has refused anything draws nothing
-   * more: not the blue bar, and not what the application shows after
-   * the glyph. */
+   * last two glyphs the transform has no inverse: a scale by zero,
+   * say, or forty scales one in another that come to zero.  What it
+   * paints has no area, so the glyph is the two bars.  cairo refuses
+   * such a matrix, and a context that has refused anything draws
+   * nothing more: not the blue bar, and not what the application
+   * shows after the glyph.
+   *
+   * The last glyph has eight transforms one in another, which change
+   * nothing together.  The first four of them squeeze the plane close
+   * to a line: their determinant is 1, the difference of two products
+   * of a million million each.  cairo takes that, so the square is to
+   * be painted. */
   hb_face_t *face = hb_test_open_font_file ("fonts/colr-transform-no-inverse.ttf");
   hb_font_t *font = hb_font_create (face);
   cairo_font_face_t *cairo_face = hb_cairo_font_face_create_for_font (font);
 
-  for (hb_codepoint_t u = 'a'; u <= 'h'; u++)
+  for (hb_codepoint_t u = 'a'; u <= 'i'; u++)
   {
     hb_codepoint_t gid;
     g_assert_true (hb_font_get_nominal_glyph (font, u, &gid));
@@ -85,7 +91,7 @@ test_hb_cairo_transform_no_inverse (void)
 	    32 * cairo_image_surface_get_stride (surface),
 	    sizeof (row));
     g_assert_cmphex (row[8], ==, 0xFFFF0000u);
-    g_assert_cmphex (row[32], ==, u == 'h' ? 0xFF00FF00u : 0u);
+    g_assert_cmphex (row[32], ==, u >= 'h' ? 0xFF00FF00u : 0u);
     g_assert_cmphex (row[56], ==, 0xFF0000FFu);
 
     cairo_destroy (cr);
