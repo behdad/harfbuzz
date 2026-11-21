@@ -1149,8 +1149,8 @@ hb_pdf_build_gradient_function_from_stops (hb_pdf_resources_t *res,
  *
  * No more periods are written than the open clips let through, and
  * never more than this many, since a color line can be as short as it
- * likes next to what it fills.  Those nearest the color line itself are
- * kept then. */
+ * likes next to what it fills.  Of those that the clips let through,
+ * the ones nearest the color line itself are kept then. */
 #define HB_PDF_GRADIENT_MAX_PERIODS 256
 
 /* Each period's shading goes this much of a period into the next, whose
@@ -1182,11 +1182,20 @@ struct hb_pdf_gradient_span_t
     tmin = hb_clamp (tmin, -limit, limit);
     tmax = hb_clamp (tmax, -limit, limit);
 
-    int nearest = (int) floor (hb_clamp (0.5, tmin, tmax));
-    first = hb_max ((int) floor (tmin), nearest - HB_PDF_GRADIENT_MAX_PERIODS / 2);
-    last = hb_min ((int) ceil (tmax), nearest + HB_PDF_GRADIENT_MAX_PERIODS / 2);
+    first = (int) floor (tmin);
+    last = (int) ceil (tmax);
     if (first == last)
       last++;
+
+    /* Too many: as many as there may be, around the one nearest the
+     * color line, and all of them among those that hold the stretch. */
+    if (last - first > HB_PDF_GRADIENT_MAX_PERIODS)
+    {
+      int nearest = (int) floor (hb_clamp (0.5, tmin, tmax));
+      first = hb_clamp (nearest - HB_PDF_GRADIENT_MAX_PERIODS / 2,
+			first, last - HB_PDF_GRADIENT_MAX_PERIODS);
+      last = first + HB_PDF_GRADIENT_MAX_PERIODS;
+    }
 
     t0 = first;
     t1 = last;

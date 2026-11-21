@@ -213,6 +213,64 @@ main (void)
   assert (IN_PAGE ("1 0 0 1 1270 0 cm\n"));
   hb_blob_destroy (blob);
 
+  /* A clip all to one side of the color line: every period that it
+   * lets through is written while they are no more than the limit,
+   * none of which is kept for the side that the clip does not reach. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, 0, 0, 200, 10);
+  linear (0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" sh\n") == 200);
+  assert (IN_PAGE ("1 0 0 1 199 0 cm\n"));
+  assert (!IN_PAGE ("1 0 0 1 -1 0 cm\n"));
+  hb_blob_destroy (blob);
+
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, -200, 0, 0, 10);
+  linear (0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" sh\n") == 200);
+  assert (IN_PAGE ("1 0 0 1 -200 0 cm\n"));
+  assert (!IN_PAGE ("1 0 0 1 1 0 cm\n"));
+  hb_blob_destroy (blob);
+
+  /* The same clip some way off the color line. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, 300, 0, 500, 10);
+  linear (0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" sh\n") == 200);
+  assert (IN_PAGE ("1 0 0 1 300 0 cm\n"));
+  assert (IN_PAGE ("1 0 0 1 499 0 cm\n"));
+  hb_blob_destroy (blob);
+
+  /* More of them than the limit: as many as the limit, all of them
+   * where the clip is, starting with those nearest the color line. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, 0, 0, 1000, 10);
+  linear (0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" sh\n") == 256);
+  assert (IN_PAGE ("1 0 0 1 255 0 cm\n"));
+  assert (!IN_PAGE ("1 0 0 1 256 0 cm\n"));
+  assert (!IN_PAGE ("1 0 0 1 -1 0 cm\n"));
+  hb_blob_destroy (blob);
+
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, -50, 0, 1000, 10);
+  linear (0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" sh\n") == 256);
+  assert (IN_PAGE ("1 0 0 1 -50 0 cm\n"));
+  assert (IN_PAGE ("1 0 0 1 205 0 cm\n"));
+  assert (!IN_PAGE ("1 0 0 1 206 0 cm\n"));
+  hb_blob_destroy (blob);
+
   /* Nothing is painted under a clip that lets nothing through. */
   begin (HB_PAINT_EXTEND_REPEAT, 255);
   hb_paint_push_clip_rectangle (funcs, paint, 10, 0, 10, 10);
@@ -288,6 +346,18 @@ main (void)
   assert (IN_DOC ("/Encode [1 0 1 0]"));
   assert (find_in (doc, doc_len, "/Coords [0 0 70 0 0 80]") <
 	  find_in (doc, doc_len, "/Coords [0 0 0 0 0 10.16]"));
+  hb_blob_destroy (blob);
+
+  /* Rings under a clip to one side of their center: all those that
+   * the clip lets through, as with the periods along a line. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, 10, 10, 150, 150);
+  hb_paint_radial_gradient (funcs, paint, &color_line, 0, 0, 0, 0, 0, 1);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (DOC_COUNT ("/ShadingType 3") == 199);
+  assert (IN_DOC ("/Coords [0 0 14 0 0 15.02]"));
+  assert (IN_DOC ("/Coords [0 0 212 0 0 213]"));
   hb_blob_destroy (blob);
 
   /* Circles that are not inside one another are painted later over
