@@ -103,3 +103,11 @@ test_vector_pdf_clip = executable('test-vector-pdf-clip', 'test-vector-pdf-clip.
 test('pdf-clip', test_vector_pdf_clip,
   suite: 'vector',
 )
+
+test_vector_svg_clip = executable('test-vector-svg-clip', 'test-vector-svg-clip.c',
+  dependencies: [libharfbuzz_vector_dep],
+)
+
+test('svg-clip', test_vector_svg_clip,
+  suite: 'vector',
+)

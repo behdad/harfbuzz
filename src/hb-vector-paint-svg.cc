@@ -513,6 +513,15 @@ hb_vector_paint_push_clip_rectangle (hb_paint_funcs_t *,
   if (unlikely (!paint->ensure_initialized ()))
     return;
 
+  /* The two corners can come the other way round, as those of a clip
+   * box of a variable font can, and the rectangle is the same one.
+   * SVG does not render a rect of negative width or height, though,
+   * and a clip path of nothing clips everything out. */
+  float x = paint->sx (xmin), y = paint->sy (ymin);
+  float width = paint->sx (xmax - xmin), height = paint->sy (ymax - ymin);
+  if (width < 0.f) { x += width; width = -width; }
+  if (height < 0.f) { y += height; height = -height; }
+
   const char *pfx = paint->id_prefix;
   unsigned pfx_len = paint->id_prefix_length;
   unsigned clip_id = paint->clip_rect_counter++;
@@ -521,13 +530,13 @@ hb_vector_paint_push_clip_rectangle (hb_paint_funcs_t *,
   paint->defs.append_c ('c');
   paint->defs.append_unsigned (clip_id);
   paint->defs.append_str ("\"><rect x=\"");
-  paint->defs.append_num (paint->sx (xmin));
+  paint->defs.append_num (x);
   paint->defs.append_str ("\" y=\"");
-  paint->defs.append_num (paint->sy (ymin));
+  paint->defs.append_num (y);
   paint->defs.append_str ("\" width=\"");
-  paint->defs.append_num (paint->sx (xmax - xmin));
+  paint->defs.append_num (width);
   paint->defs.append_str ("\" height=\"");
-  paint->defs.append_num (paint->sy (ymax - ymin));
+  paint->defs.append_num (height);
   paint->defs.append_str ("\"/></clipPath>\n");
 
   unsigned start = paint->current_body ().length;
