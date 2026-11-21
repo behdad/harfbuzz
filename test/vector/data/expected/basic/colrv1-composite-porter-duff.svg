@@ -14,7 +14,7 @@
 </g>
 </mask>
 <mask id="m1">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF" mask="url(#m0)"/>
+<rect x="0" y="-3" width="18" height="19" fill="#FFF" mask="url(#m0)"/>
 </mask>
 <clipPath id="c6"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <mask id="m2" mask-type="alpha">
@@ -25,7 +25,7 @@
 </g>
 </mask>
 <mask id="m3">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF" mask="url(#m2)"/>
+<rect x="-3" y="0" width="19" height="18" fill="#FFF" mask="url(#m2)"/>
 </mask>
 <clipPath id="c7"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <mask id="m4" mask-type="alpha">
@@ -36,8 +36,8 @@
 </g>
 </mask>
 <mask id="m5">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m4)"/>
+<rect x="0" y="-3" width="18" height="19" fill="#FFF"/>
+<rect x="0" y="-3" width="18" height="19" mask="url(#m4)"/>
 </mask>
 <clipPath id="c8"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <mask id="m6" mask-type="alpha">
@@ -48,8 +48,8 @@
 </g>
 </mask>
 <mask id="m7">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m6)"/>
+<rect x="-3" y="0" width="19" height="18" fill="#FFF"/>
+<rect x="-3" y="0" width="19" height="18" mask="url(#m6)"/>
 </mask>
 <clipPath id="c9"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <g id="g0">
@@ -70,14 +70,14 @@
 <use href="#g1"/>
 </mask>
 <mask id="m9">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m8)"/>
+<rect x="-3" y="0" width="19" height="18" fill="#FFF"/>
+<rect x="-3" y="0" width="19" height="18" mask="url(#m8)"/>
 </mask>
 <mask id="m10" mask-type="alpha">
 <use href="#g0"/>
 </mask>
 <mask id="m11">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF" mask="url(#m10)"/>
+<rect x="0" y="-3" width="18" height="19" fill="#FFF" mask="url(#m10)"/>
 </mask>
 <clipPath id="c10"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <g id="g2">
@@ -98,14 +98,14 @@
 <use href="#g2"/>
 </mask>
 <mask id="m13">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m12)"/>
+<rect x="0" y="-3" width="18" height="19" fill="#FFF"/>
+<rect x="0" y="-3" width="18" height="19" mask="url(#m12)"/>
 </mask>
 <mask id="m14" mask-type="alpha">
 <use href="#g3"/>
 </mask>
 <mask id="m15">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF" mask="url(#m14)"/>
+<rect x="-3" y="0" width="19" height="18" fill="#FFF" mask="url(#m14)"/>
 </mask>
 <clipPath id="c11"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 <g id="g4">
@@ -126,15 +126,15 @@
 <use href="#g5"/>
 </mask>
 <mask id="m17">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m16)"/>
+<rect x="-3" y="0" width="19" height="18" fill="#FFF"/>
+<rect x="-3" y="0" width="19" height="18" mask="url(#m16)"/>
 </mask>
 <mask id="m18" mask-type="alpha">
 <use href="#g4"/>
 </mask>
 <mask id="m19">
-<rect x="-32767" y="-32767" width="65534" height="65534" fill="#FFF"/>
-<rect x="-32767" y="-32767" width="65534" height="65534" mask="url(#m18)"/>
+<rect x="0" y="-3" width="18" height="19" fill="#FFF"/>
+<rect x="0" y="-3" width="18" height="19" mask="url(#m18)"/>
 </mask>
 <clipPath id="c12"><rect x="0" y="0" width="15.62" height="15.62"/></clipPath>
 </defs>

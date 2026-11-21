@@ -414,6 +414,138 @@ test_root_svg (void)
   }
 }
 
+/* A source that fills the plane, in a square backdrop. */
+static void
+unbounded_scene (hb_paint_funcs_t *funcs, void *paint, int mode)
+{
+  square (funcs, paint, 10, 10, BLUE);
+  hb_paint_push_group (funcs, paint);
+  hb_paint_color (funcs, paint, 0, RED);
+  hb_paint_pop_group (funcs, paint, (hb_paint_composite_mode_t) mode);
+}
+
+/* Two squares of 10 units far from the origin, a blue backdrop and a
+ * red source half way over it, each under a transform of its own. */
+#define FAR 40000.f
+
+static void
+far_square (hb_paint_funcs_t *funcs, void *paint, float x, hb_color_t color)
+{
+  hb_paint_push_transform (funcs, paint, 1, 0, 0, 1, x, 0);
+  hb_paint_push_clip_rectangle (funcs, paint, 0, 0, 10, 10);
+  hb_paint_color (funcs, paint, 0, color);
+  hb_paint_pop_clip (funcs, paint);
+  hb_paint_pop_transform (funcs, paint);
+}
+
+/* Composited with nothing open, in the space of the root. */
+static void
+far_scene (hb_paint_funcs_t *funcs, void *paint, int mode)
+{
+  far_square (funcs, paint, FAR, BLUE);
+  hb_paint_push_group (funcs, paint);
+  far_square (funcs, paint, FAR + 5, RED);
+  hb_paint_pop_group (funcs, paint, (hb_paint_composite_mode_t) mode);
+}
+
+/* Composited in a group that is under a transform, at half the
+ * distance in its space: a mask is in the space of that group. */
+static void
+far_group_scene (hb_paint_funcs_t *funcs, void *paint, int mode)
+{
+  hb_paint_push_transform (funcs, paint, 2, 0, 0, 2, 0, 0);
+  hb_paint_push_group (funcs, paint);
+  far_scene (funcs, paint, mode);
+  hb_paint_pop_group (funcs, paint, HB_PAINT_COMPOSITE_MODE_SRC_OVER);
+  hb_paint_pop_transform (funcs, paint);
+}
+
+/* Composited with that transform open in the group itself: it is
+ * closed around the result, and the mask is in the space outside it,
+ * where the squares are twice as far and twice the size. */
+static void
+far_open_scene (hb_paint_funcs_t *funcs, void *paint, int mode)
+{
+  hb_paint_push_transform (funcs, paint, 2, 0, 0, 2, 0, 0);
+  far_scene (funcs, paint, mode);
+  hb_paint_pop_transform (funcs, paint);
+}
+
+/* Asserts that the rectangles of the masks in @doc are, in order,
+ * around the backdrop square ('b') or the source square ('s') as
+ * @which says, the squares being @scale times as far and as big. */
+static void
+check_mask_rects (const char *doc, const char *which, float scale)
+{
+  const char *end = strstr (doc, "</defs>");
+  assert (end);
+  unsigned n = 0;
+  for (const char *p = doc; (p = find (p, end, "<rect x=\"")); p++)
+  {
+    const char *eol = (const char *) memchr (p, '\n', (size_t) (end - p));
+    assert (eol);
+    /* Those of the masks are white, or have a mask themselves. */
+    if (!find (p, eol, " fill=\"#FFF\"") && !find (p, eol, " mask=\"url(#"))
+      continue;
+    float x, y, width, height;
+    assert (sscanf (p, "<rect x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\"",
+		    &x, &y, &width, &height) == 4);
+    assert (n < strlen (which));
+    float left = scale * (which[n] == 's' ? FAR + 5 : FAR);
+    float size = scale * 10;
+    /* Around the square, and not far from it. */
+    assert (x < left && left + size < x + width);
+    assert (y < 0 && size < y + height);
+    assert (left - 2 * size < x && x + width < left + 3 * size);
+    n++;
+  }
+  assert (n == strlen (which));
+}
+
+/* The rectangle that a mask is made of covers what is masked, however
+ * far from the origin that is. */
+static void
+test_mask_bounds_svg (void)
+{
+  static const struct { int mode; const char *which; } tests[] = {
+    /* The source in the backdrop, or out of it: a white rectangle
+     * under the one that is masked. */
+    {HB_PAINT_COMPOSITE_MODE_SRC_IN, "s"},
+    {HB_PAINT_COMPOSITE_MODE_SRC_OUT, "ss"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_IN, "b"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_OUT, "bb"},
+    /* The lower part and then the upper one. */
+    {HB_PAINT_COMPOSITE_MODE_SRC_ATOP, "bbs"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_ATOP, "ssb"},
+    {HB_PAINT_COMPOSITE_MODE_XOR, "bbss"},
+  };
+  for (unsigned i = 0; i < sizeof (tests) / sizeof (tests[0]); i++)
+  {
+    char *doc = render (HB_VECTOR_FORMAT_SVG, far_scene, tests[i].mode);
+    check_svg (doc);
+    check_mask_rects (doc, tests[i].which, 1);
+    free (doc);
+
+    doc = render (HB_VECTOR_FORMAT_SVG, far_group_scene, tests[i].mode);
+    check_svg (doc);
+    check_mask_rects (doc, tests[i].which, 1);
+    free (doc);
+
+    doc = render (HB_VECTOR_FORMAT_SVG, far_open_scene, tests[i].mode);
+    check_svg (doc);
+    check_mask_rects (doc, tests[i].which, 2);
+    free (doc);
+  }
+
+  /* What is not bounded by a clip is masked with a rectangle as big
+   * as the one it is painted with. */
+  char *doc = render (HB_VECTOR_FORMAT_SVG, unbounded_scene, HB_PAINT_COMPOSITE_MODE_SRC_IN);
+  check_svg (doc);
+  assert (strstr (doc, "<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\""
+		       " fill=\"#FFF\" mask=\"url(#"));
+  free (doc);
+}
+
 /* Groups, transforms and clips that are not popped in the order they
  * were pushed: the document is whole all the same. */
 static void
@@ -700,6 +832,7 @@ main (void)
   test_modes_svg ();
   test_open_scopes_svg ();
   test_root_svg ();
+  test_mask_bounds_svg ();
   test_unbalanced_svg ();
   test_nested_svg ();
   test_reuse (HB_VECTOR_FORMAT_SVG);

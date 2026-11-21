@@ -71,6 +71,11 @@ struct hb_vector_paint_group_t : hb_vector_buf_t
    * so this group has to be written as one. */
   bool blended = false;
 
+  /* The bounds of what the group has painted, in the space of the
+   * document's root, as far as hb_vector_paint_t::painted() was told.
+   * The SVG writer keeps them, for the masks it composites with. */
+  hb_bounds_t<> bounds = hb_bounds_t<> (hb_bounds_t<>::EMPTY);
+
   uint64_t work () const { return length + referred; }
 };
 
@@ -213,6 +218,30 @@ struct hb_vector_paint_t
     scope.clip = clip_bounds (e);
   }
 
+  /* The transform from the space that the current group starts in, with
+   * what is open in the group itself closed, to that of the document's
+   * root. */
+  hb_transform_t<> group_ctm ()
+  {
+    unsigned base = current_group ().scope_base;
+    if (base && base <= scopes.length) return scopes.arrayZ[base - 1].ctm;
+    return HB_TRANSFORM_IDENTITY;
+  }
+
+  /* Records that the current group has painted within @bounds, which
+   * are in the space of the document's root, as much as the open clips
+   * let through; with no @bounds, all that they let through. */
+  void painted (hb_bounds_t<> bounds = hb_bounds_t<> ())
+  {
+    for (const auto &scope : scopes)
+      bounds.intersect (scope.clip);
+    current_group ().bounds.union_ (bounds);
+  }
+
+  /* That it has painted within @e, which is in the current space. */
+  void painted (const hb_extents_t<> &e)
+  { painted (clip_bounds (e)); }
+
   /* The bounds of what the open clips let through, as their corners in
    * the current space, in order around them.  Returns BOUNDED if it has
    * set them, EMPTY if the clips let nothing through, and UNBOUNDED if
@@ -223,11 +252,19 @@ struct hb_vector_paint_t
     hb_bounds_t<> bounds;
     for (const auto &scope : scopes)
       bounds.intersect (scope.clip);
+    return corners (bounds, current_ctm (), x, y);
+  }
 
+  /* The corners of @bounds, which are in the space of the document's
+   * root, in the space that @t is the transform from, in order around
+   * them.  Returns as clip_corners() does. */
+  static hb_bounds_t<>::status_t corners (const hb_bounds_t<> &bounds,
+					  const hb_transform_t<> &t,
+					  float x[4], float y[4])
+  {
     if (bounds.status != hb_bounds_t<>::BOUNDED)
       return bounds.status;
 
-    hb_transform_t<> t = current_ctm ();
     float det = t.xx * t.yy - t.xy * t.yx;
     if (!(fabsf (det) > 1e-12f))
       return hb_bounds_t<>::UNBOUNDED;

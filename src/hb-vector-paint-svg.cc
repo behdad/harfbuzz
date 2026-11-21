@@ -431,13 +431,14 @@ hb_vector_paint_fill_glyph (hb_paint_funcs_t *,
     return;
 
   paint->path.clear ();
+  hb_extents_t<> extents;
   /* Skip the outline extraction when the session work budget is
    * spent; an empty path keeps the document structure intact. */
   if (likely (paint->budget_remaining >= 0))
   {
     hb_vector_path_sink_t sink = {&paint->path, paint->get_precision (),
 				 paint->x_scale_factor, paint->y_scale_factor,
-				 &paint->budget_remaining};
+				 &paint->budget_remaining, &extents};
     hb_font_draw_glyph (font, glyph, hb_vector_svg_path_draw_funcs_get (), &sink);
   }
 
@@ -447,6 +448,7 @@ hb_vector_paint_fill_glyph (hb_paint_funcs_t *,
   body.append_str ("\" fill=\"");
   body.append_svg_color (color, true);
   body.append_str ("\"/>\n");
+  paint->painted (extents);
 }
 
 static void
@@ -643,6 +645,7 @@ hb_vector_paint_color (hb_paint_funcs_t *,
   body.append_str ("<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\" fill=\"");
   body.append_svg_color (color, true);
   body.append_str ("\"/>\n");
+  paint->painted ();
 }
 
 static hb_bool_t
@@ -689,6 +692,11 @@ hb_vector_paint_image (hb_paint_funcs_t *,
     body.append_num ((float) height);
     body.append_str ("\"/>\n</g>\n");
 
+    hb_extents_t<> e (*extents);
+    paint->painted (hb_extents_t<> {hb_min (paint->sx (e.xmin), paint->sx (e.xmax)),
+				    hb_min (paint->sy (e.ymin), paint->sy (e.ymax)),
+				    hb_max (paint->sx (e.xmin), paint->sx (e.xmax)),
+				    hb_max (paint->sy (e.ymin), paint->sy (e.ymax))});
     return true;
   }
 
@@ -759,6 +767,7 @@ hb_vector_paint_linear_gradient (hb_paint_funcs_t *,
   paint->current_body ().append_str ("gr");
   paint->current_body ().append_unsigned (grad_id);
   paint->current_body ().append_str (")\"/>\n");
+  paint->painted ();
 }
 
 static void
@@ -826,6 +835,7 @@ hb_vector_paint_radial_gradient (hb_paint_funcs_t *,
   paint->current_body ().append_str ("gr");
   paint->current_body ().append_unsigned (grad_id);
   paint->current_body ().append_str (")\"/>\n");
+  paint->painted ();
 }
 
 static void
@@ -867,6 +877,7 @@ hb_vector_paint_sweep_gradient (hb_paint_funcs_t *,
 				 ga0, ga1,
 				 hb_vector_svg_sweep_emit_patch,
 				 &ctx);
+  paint->painted ();
 }
 
 static void
@@ -935,10 +946,54 @@ hb_vector_svg_append_group_or_use (hb_vector_paint_t *paint,
   buf.append_str ("\"/>\n");
 }
 
+/* Appends to @buf a <rect>, as far as its place and size, that covers
+ * what a mask is put on.  That is within @bounds, which are in the
+ * space of the document's root; the rectangle is in the space of the
+ * mask, which is the one that the current group starts in.
+ *
+ * A fill is a rectangle of one size, under the clip that bounds it.
+ * The rectangle of a mask is not under the clips and transforms of
+ * what it masks, which may be painted further away than a rectangle
+ * of one size reaches, so it is put where that is: around the bounds,
+ * and past them on every side, as its edges are antialiased and must
+ * not come to lie on those of what is masked.  It is the rectangle of
+ * a fill only where there are no bounds to go by. */
+static void
+hb_vector_svg_append_mask_rect (hb_vector_paint_t *paint,
+				hb_vector_buf_t &buf,
+				const hb_bounds_t<> &bounds)
+{
+  float x[4], y[4];
+  if (hb_vector_paint_t::corners (bounds, paint->group_ctm (), x, y) == hb_bounds_t<>::BOUNDED)
+  {
+    hb_extents_t<> e;
+    for (unsigned i = 0; i < 4; i++)
+      e.add_point (x[i], y[i]);
+    float dx = (e.xmax - e.xmin) / 2.f + 1.f, dy = (e.ymax - e.ymin) / 2.f + 1.f;
+    float xmin = floorf (e.xmin - dx), ymin = floorf (e.ymin - dy);
+    float width = ceilf (e.xmax + dx) - xmin, height = ceilf (e.ymax + dy) - ymin;
+    if (std::isfinite (xmin) && std::isfinite (ymin) &&
+	std::isfinite (width) && std::isfinite (height))
+    {
+      buf.append_str ("<rect x=\"");
+      buf.append_num (xmin);
+      buf.append_str ("\" y=\"");
+      buf.append_num (ymin);
+      buf.append_str ("\" width=\"");
+      buf.append_num (width);
+      buf.append_str ("\" height=\"");
+      buf.append_num (height);
+      buf.append_c ('"');
+      return;
+    }
+  }
+  buf.append_str ("<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\"");
+}
+
 /* Writes a mask to <defs> that is the alpha of a group or, with
  * @inverse, one minus it.  The group is @group, which is written into
- * the mask, or if that is null the defined group @group_id.  Returns
- * the mask's id.
+ * the mask, or if that is null the defined group @group_id.  The mask
+ * is for what is painted within @bounds.  Returns the mask's id.
  *
  * The alpha comes from a mask of mask-type alpha, but that is not the
  * mask returned.  It cannot be inverted, as no content has the inverse
@@ -951,7 +1006,8 @@ static unsigned
 hb_vector_svg_define_mask (hb_vector_paint_t *paint,
 			   const hb_vector_paint_group_t *group,
 			   unsigned group_id,
-			   bool inverse)
+			   bool inverse,
+			   const hb_bounds_t<> &bounds)
 {
   auto &defs = paint->defs;
   unsigned alpha_id = paint->mask_counter++;
@@ -966,8 +1022,11 @@ hb_vector_svg_define_mask (hb_vector_paint_t *paint,
   hb_vector_svg_append_id (paint, defs, 'm', id);
   defs.append_str ("\">\n");
   if (inverse)
-    defs.append_str ("<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\" fill=\"#FFF\"/>\n");
-  defs.append_str ("<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\"");
+  {
+    hb_vector_svg_append_mask_rect (paint, defs, bounds);
+    defs.append_str (" fill=\"#FFF\"/>\n");
+  }
+  hb_vector_svg_append_mask_rect (paint, defs, bounds);
   if (!inverse)
     defs.append_str (" fill=\"#FFF\"");
   defs.append_str (" mask=\"url(#");
@@ -1014,6 +1073,7 @@ hb_vector_svg_close_scopes (hb_vector_paint_t *paint,
   under.base = src.base;
   under.referred = src.referred;
   under.blended = src.blended;
+  under.bounds = src.bounds;
   under.append_len (opening->arrayZ, opening->length);
   under.append_len (src.arrayZ, src.length);
   for (unsigned i = 0; i < count; i++)
@@ -1072,7 +1132,8 @@ hb_vector_svg_composite (hb_vector_paint_t *paint,
     case HB_PAINT_COMPOSITE_MODE_SRC_OUT:
     {
       unsigned mask = hb_vector_svg_define_mask (paint, &backdrop, 0,
-						 mode == HB_PAINT_COMPOSITE_MODE_SRC_OUT);
+						 mode == HB_PAINT_COMPOSITE_MODE_SRC_OUT,
+						 src.bounds);
       hb_vector_svg_paint_masked (paint, mask, &src, 0);
       dst.referred = src.referred + backdrop.work ();
       break;
@@ -1082,7 +1143,8 @@ hb_vector_svg_composite (hb_vector_paint_t *paint,
     case HB_PAINT_COMPOSITE_MODE_DEST_OUT:
     {
       unsigned mask = hb_vector_svg_define_mask (paint, &src, 0,
-						 mode == HB_PAINT_COMPOSITE_MODE_DEST_OUT);
+						 mode == HB_PAINT_COMPOSITE_MODE_DEST_OUT,
+						 backdrop.bounds);
       hb_vector_svg_paint_masked (paint, mask, &backdrop, 0);
       dst.referred = backdrop.referred + src.work ();
       break;
@@ -1096,11 +1158,17 @@ hb_vector_svg_composite (hb_vector_paint_t *paint,
        * part the other group in it, or for XOR out of it. */
       unsigned lower = hb_vector_svg_define_group (paint, backdrop);
       unsigned upper = hb_vector_svg_define_group (paint, src);
+      hb_bounds_t<> lower_bounds = backdrop.bounds, upper_bounds = src.bounds;
       if (mode == HB_PAINT_COMPOSITE_MODE_DEST_ATOP)
+      {
 	hb_swap (lower, upper);
-      unsigned lower_mask = hb_vector_svg_define_mask (paint, nullptr, upper, true);
+	hb_swap (lower_bounds, upper_bounds);
+      }
+      unsigned lower_mask = hb_vector_svg_define_mask (paint, nullptr, upper, true,
+						       lower_bounds);
       unsigned upper_mask = hb_vector_svg_define_mask (paint, nullptr, lower,
-						       mode == HB_PAINT_COMPOSITE_MODE_XOR);
+						       mode == HB_PAINT_COMPOSITE_MODE_XOR,
+						       upper_bounds);
       hb_vector_svg_paint_masked (paint, lower_mask, nullptr, lower);
       hb_vector_svg_paint_masked (paint, upper_mask, nullptr, upper, true);
       dst.referred = 2 * (src.work () + backdrop.work ());
@@ -1112,6 +1180,10 @@ hb_vector_svg_composite (hb_vector_paint_t *paint,
     default:
       break;
   }
+
+  /* What is left of the two is within the bounds of both. */
+  dst.bounds = backdrop.bounds;
+  dst.bounds.union_ (src.bounds);
 
   paint->reopen_scopes (opening);
 
@@ -1183,6 +1255,7 @@ hb_vector_paint_pop_group (hb_paint_funcs_t *,
   body.append_len (group.arrayZ, group.length);
   body.append_str ("</g>\n");
   body.referred += group.referred;
+  body.bounds.union_ (group.bounds);
   if (blending)
   {
     body.blended = true;
