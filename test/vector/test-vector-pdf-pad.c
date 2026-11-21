@@ -26,7 +26,11 @@
  * color, and after its last stop in that one's.  Where two stops share
  * the first offset or the last, a PDF shading would go on in the color
  * of the inner one.  Check that the color line is lengthened so that
- * the outer one has a stretch of the shading to itself. */
+ * the outer one has a stretch of the shading to itself.
+ *
+ * So it is where the color line changes fast at its end: pdfium goes
+ * on after a shading in the last of the 256 samples that it takes of
+ * the function, at 255/256, which is then short of the last color. */
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -144,6 +148,9 @@ main (void)
   static const float at_start[3] = {0, 0, 1};
   static const float at_end[3] = {0, 1, 1};
   static const float at_both[4] = {0, 0, 1, 1};
+  static const float near_end[3] = {0, 0.96f, 1};
+  static const float halfway[3] = {0, 0.5f, 1};
+  static const float at_start_near_end[4] = {0, 0, 0.96f, 1};
   hb_blob_t *blob;
 
   /* Red and blue at 0, green at 1, along 150: red before x = 0.  The
@@ -215,6 +222,68 @@ main (void)
   assert (has ("/Coords [0 0 150 0 0 0]"));
   assert (!has ("/Bounds"));
   assert (has ("/C0 [1 0 0]\n/C1 [0 0 1]"));
+  hb_blob_destroy (blob);
+
+  /* Red at 0, blue at 0.96, green at 1, along 127: at 255/256 the
+   * color line is a tenth of the way from green still.  The shading
+   * ends a 127th later, at 128, and is green for its last 128th. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 127, 0, -1, 3, near_end, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 128 0]"));
+  assert (has ("/Bounds [0.9525 0.9922]"));
+  assert (has ("/C0 [0 1 0]\n/C1 [0 1 0]"));
+  hb_blob_destroy (blob);
+
+  /* Blue at 0.5: at 255/256 it is within two levels of green, and the
+   * shading is written as it is. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 127, 0, -1, 3, halfway, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 127 0]"));
+  assert (has ("/Bounds [0.5]"));
+  assert (!has ("/C0 [0 1 0]\n/C1 [0 1 0]"));
+  hb_blob_destroy (blob);
+
+  /* Blue at 0.96 with nothing after the color line: one that repeats,
+   * and circles that shrink to nothing. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 127, 0, -1, 3, near_end, HB_PAINT_EXTEND_REPEAT);
+  assert (!has ("/C0 [0 1 0]\n/C1 [0 1 0]"));
+  hb_blob_destroy (blob);
+  blob = render (HB_VECTOR_FORMAT_PDF, 0, 127, 0, 3, near_end, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 127 0 0 0]"));
+  assert (has ("/Bounds [0.96]"));
+  hb_blob_destroy (blob);
+
+  /* Circles that grow from a radius of 53 to 180: to 181. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 0, 53, 180, 3, near_end, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 53 0 0 181]"));
+  assert (has ("/Bounds [0.9525 0.9922]"));
+  hb_blob_destroy (blob);
+
+  /* Red and blue at 0, green at 0.96, red at 1, along 119: a sixteenth
+   * of what it comes to before it, from -8, and a 128th after, to 120. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 119, 0, -1, 4, at_start_near_end, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [-8 0 120 0]"));
+  assert (has ("/Bounds [0.0625 0.0625 0.955 0.9922]"));
+  hb_blob_destroy (blob);
+
+  /* Circles that shrink from 150 to nothing, with red and blue where
+   * they start and green near where they end: only the start gets a
+   * stretch, a fifteenth, from a radius of 160. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 0, 150, 0, 4, at_start_near_end, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 160 0 0 0]"));
+  assert (has ("/Bounds [0.0625 0.0625 0.9625]"));
+  hb_blob_destroy (blob);
+
+  /* The same with two stops at either end: those at the end are not
+   * lengthened for, and the one after the color line is not written. */
+  blob = render (HB_VECTOR_FORMAT_PDF, 0, 150, 0, 4, at_both, HB_PAINT_EXTEND_PAD);
+  assert (has ("/Coords [0 0 160 0 0 0]"));
+  assert (has ("/Bounds [0.0625 0.0625]"));
+  hb_blob_destroy (blob);
+
+  /* SVG has the last color after the color line whatever comes
+   * before it. */
+  blob = render (HB_VECTOR_FORMAT_SVG, 127, 0, -1, 3, near_end, HB_PAINT_EXTEND_PAD);
+  assert (has (" x1=\"0\" y1=\"0\" x2=\"127\" y2=\"0\""));
+  assert (has ("<stop offset=\"0.96\" stop-color=\"rgb(0,0,255)\"/>"));
   hb_blob_destroy (blob);
 
   return 0;

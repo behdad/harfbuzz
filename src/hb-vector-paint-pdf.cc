@@ -926,19 +926,60 @@ hb_pdf_gradient_needs_alpha (hb_array_t<const hb_color_stop_t> stops)
   return false;
 }
 
+/* Whether the color line in @stops, which is sorted and goes from 0 to
+ * 1, is at 255/256 still more than two levels short of its last color:
+ * in alpha, or in what shows of red, green or blue, which is that
+ * times alpha.  pdfium takes 256 samples of a shading's function, the
+ * last of them there, and goes on after the shading in that one. */
+static bool
+hb_pdf_color_line_ends_late (hb_array_t<const hb_color_stop_t> stops)
+{
+  unsigned count = stops.length;
+  if (count < 2)
+    return false;
+
+  /* The two stops that 255/256 is between. */
+  const float t = 255.f / 256;
+  unsigned i = count - 1;
+  while (i > 1 && stops.arrayZ[i - 1].offset > t)
+    i--;
+  const hb_color_stop_t &a = stops.arrayZ[i - 1], &b = stops.arrayZ[i];
+  float k = b.offset > a.offset
+	    ? hb_clamp ((t - a.offset) / (b.offset - a.offset), 0.f, 1.f) : 1.f;
+
+  /* Alpha first, then red, green and blue. */
+  float there[4], last[4];
+  for (unsigned c = 0; c < 4; c++)
+  {
+    float v0 = (float) ((a.color >> (8 * c)) & 0xFF);
+    float v1 = (float) ((b.color >> (8 * c)) & 0xFF);
+    there[c] = v0 + k * (v1 - v0);
+    last[c] = (float) ((stops.arrayZ[count - 1].color >> (8 * c)) & 0xFF);
+  }
+  if (fabsf (there[0] - last[0]) > 2.f)
+    return true;
+  for (unsigned c = 1; c < 4; c++)
+    if (fabsf (there[c] * there[0] - last[c] * last[0]) > 2.f * 255.f)
+      return true;
+  return false;
+}
+
 /* A color line that pads goes on before its first stop in that stop's
  * color, and after its last stop in that one's.  A shading that extends
  * goes on in what its function gives at 0 and at 1.  Where two stops
  * share the first offset, or the last, that is the color of the inner
  * one of the two in most viewers: the outer one has no stretch of the
- * function to itself.
+ * function to itself.  And where the color line changes fast at its
+ * end, the last of pdfium's samples of the function, which it goes on
+ * in, is not yet the last color.
  *
- * Gives it one.  Lengthens the color line in paint->color_stops_scratch,
- * which is sorted and goes from 0 to 1, by a stretch in the outer stop's
- * color at such an end, and moves that end of the gradient out with it.
- * The two stops are then a sixteenth in from the end, where a viewer
- * that samples the function at every 256th, as pdfium does, has a
- * sample.
+ * Gives the outer stop a stretch.  Lengthens the color line in
+ * paint->color_stops_scratch, which is sorted and goes from 0 to 1, in
+ * the outer stop's color at such an end, and moves that end of the
+ * gradient out with it.  Two stops that share an offset are then a
+ * sixteenth in from the end, where a viewer that samples the function
+ * at every 256th, as pdfium does, has a sample.  A last color that was
+ * only late gets the last 128th, which has the last sample in it.
  *
  * A radial gradient, which has radii, is lengthened no further than
  * halfway to where its radius is zero.  One that starts or ends there
@@ -957,11 +998,26 @@ hb_pdf_pad_color_line (hb_vector_paint_t *paint,
     first++;
   while (last < count && stops.arrayZ[count - 1 - last].offset == stops.arrayZ[count - 1].offset)
     last++;
-  if ((first == 1 && last == 1) || first + last > count)
+  if (first + last > count)
     return;
 
-  float length = first > 1 && last > 1 ? 1.f / 14 : 1.f / 15;
-  float before = first > 1 ? length : 0.f, after = last > 1 ? length : 0.f;
+  /* How much of the lengthened color line the stretch at each end is
+   * to be: a sixteenth for two stops, which are to be at a sample, and
+   * the last 128th for a last color to be there by the last sample. */
+  float at_start = first > 1 ? 1.f / 16 : 0.f;
+  float at_end = last > 1 ? 1.f / 16 :
+		 hb_pdf_color_line_ends_late (stops) ? 1.f / 128 : 0.f;
+  if (r0)
+  {
+    float dr = *r1 - *r0;
+    if (dr > 0.f && !(*r0 > 0.f)) at_start = 0.f;
+    if (dr < 0.f && !(*r1 > 0.f)) at_end = 0.f;
+  }
+  if (at_start == 0.f && at_end == 0.f && first == 1 && last == 1)
+    return;
+
+  float before = at_start / (1.f - at_start - at_end);
+  float after = at_end / (1.f - at_start - at_end);
   if (r0)
   {
     float dr = *r1 - *r0;
@@ -988,7 +1044,7 @@ hb_pdf_pad_color_line (hb_vector_paint_t *paint,
     end = count - (last - 1);
   for (; i < end; i++)
     out.push (stops.arrayZ[i]);
-  if (last > 1 && after > 0.f)
+  if (after > 0.f)
   {
     hb_color_stop_t stop = stops.arrayZ[count - 1];
     stop.offset = 1.f + after;
