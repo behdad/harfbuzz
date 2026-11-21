@@ -1087,6 +1087,9 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
   float img_sy = (float) extents->height / src_height;
   if (fabsf (img_sx) < 1e-10f || fabsf (img_sy) < 1e-10f)
     return false;
+  /* The corner across from the one its extents start at. */
+  float img_x1 = img_x + (float) extents->width;
+  float img_y1 = img_y + (float) extents->height;
 
   {
     unsigned clip_w = clip.max_x > clip.min_x ? clip.max_x - clip.min_x : 0;
@@ -1132,13 +1135,20 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
 	/* Map glyph space to the image: from (0, 0) at the corner its
 	 * extents start at to (src_width, src_height) at the opposite
 	 * one. */
-	float u = (gx + inv_xx * fx + inv_xy * fy - img_x) / img_sx;
-	float v = (gy + inv_yx * fx + inv_yy * fy - img_y) / img_sy;
+	float x = gx + inv_xx * fx + inv_xy * fy;
+	float y = gy + inv_yx * fx + inv_yy * fy;
+	float u = (x - img_x) / img_sx;
+	float v = (y - img_y) / img_sy;
 
-	/* A sample outside of the image is clear. */
+	/* A sample outside of the image is clear.  The image has the two
+	 * edges its extents start at and not the two across from them,
+	 * so that a sample on the edge between two images is in one of
+	 * them: not in both, nor in neither.  The far edges are told in
+	 * glyph space, where one image ends at the very number the next
+	 * starts at; in the image the scale is rounded. */
 	if (unlikely (!std::isfinite (u) || !std::isfinite (v)) ||
 	    u < 0.f || v < 0.f ||
-	    u > (float) src_width || v > (float) src_height)
+	    (x - img_x1) * img_sx >= 0.f || (y - img_y1) * img_sy >= 0.f)
 	  continue;
 
 	/* Bilinear reconstruction has the texels at whole numbers, so

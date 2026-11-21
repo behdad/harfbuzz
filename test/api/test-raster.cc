@@ -917,6 +917,63 @@ test_image_shrunk (void)
   hb_raster_paint_destroy (paint);
 }
 
+/* Paints four images of one translucent color, each of @texels by
+ * @texels pixels over @size by @size units, two by two from the origin,
+ * moved by @shift to the right and down.  Each is to paint the places
+ * on its left and top edges and none on its right and bottom ones. */
+static void
+paint_images_side_by_side (unsigned texels, int size, float shift)
+{
+  hb_raster_paint_t *paint = hb_raster_paint_create_or_fail ();
+  hb_raster_extents_t ext = {0, 0, 2 * (unsigned) size + 2, 2 * (unsigned) size + 2, 0};
+  hb_raster_paint_set_extents (paint, &ext);
+  const uint8_t color[] = {16, 32, 48, 128}, clear[] = {0, 0, 0, 0};
+  uint8_t pixels[16 * 16 * 4];
+  g_assert_cmpuint (texels, <=, 16);
+  for (unsigned i = 0; i < texels * texels; i++)
+    memcpy (pixels + i * 4, color, 4);
+  hb_blob_t *blob = hb_blob_create ((const char *) pixels, texels * texels * 4,
+				    HB_MEMORY_MODE_READONLY, nullptr, nullptr);
+  hb_paint_funcs_t *funcs = hb_raster_paint_get_funcs (paint);
+  hb_paint_push_transform (funcs, paint, 1.f, 0.f, 0.f, 1.f, shift, -shift);
+  for (int y = 0; y < 2; y++)
+    for (int x = 0; x < 2; x++)
+    {
+      hb_glyph_extents_t gext = {x * size, (y + 1) * size, size, -size};
+      hb_paint_image (funcs, paint, blob, texels, texels,
+		      HB_PAINT_IMAGE_FORMAT_BGRA, 0.f, &gext);
+    }
+  hb_paint_pop_transform (funcs, paint);
+  hb_raster_image_t *img = hb_raster_paint_render (paint);
+  g_assert_nonnull (img);
+  hb_raster_image_get_extents (img, &ext);
+  for (unsigned y = 0; y < ext.height; y++)
+    for (unsigned x = 0; x < ext.width; x++)
+      g_assert_cmpmem (hb_raster_image_get_buffer (img) + y * ext.stride + x * 4, 4,
+		       x < 2 * (unsigned) size && y < 2 * (unsigned) size ? color : clear, 4);
+  hb_raster_image_destroy (img);
+  hb_blob_destroy (blob);
+  hb_raster_paint_destroy (paint);
+}
+
+/* Images side by side share the edge between them.  What is read on
+ * that edge is painted by one of them: by both it would be painted
+ * twice, more opaque than the images are, and by neither there would
+ * be a seam.  So an image is not painted on the two edges across from
+ * where its extents start, and the four here paint as many pixels as
+ * they cover. */
+static void
+test_image_edges (void)
+{
+  /* Pixels are centered on the edges. */
+  paint_images_side_by_side (1, 1, .5f);
+  /* The same, with a scale that is not exact in floating point. */
+  paint_images_side_by_side (11, 47, .5f);
+  /* Shrunk, with places that are read from a pixel on the edges. */
+  paint_images_side_by_side (4, 1, .25f);
+  paint_images_side_by_side (7, 1, .125f);
+}
+
 static void
 test_image_png_byte_order (void)
 {
@@ -1131,6 +1188,7 @@ main (int argc, char **argv)
   hb_test_add (test_image_extents);
   hb_test_add (test_image_bgra_rows);
   hb_test_add (test_image_shrunk);
+  hb_test_add (test_image_edges);
   hb_test_add (test_image_png_byte_order);
   hb_test_add (test_image_png_size);
   hb_test_add (test_budget_sweep);
