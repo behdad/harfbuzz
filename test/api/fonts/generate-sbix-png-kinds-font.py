@@ -27,9 +27,11 @@ def columns(x, y):
     return x
 
 
-# (color type, bits a sample, what a pixel is, palette, alpha of the
-# palette's entries, interlaced).  No palette here has alpha: that takes
-# zlib to embed, and the PDF of these is to be the same without it.
+# (color type, bits a sample, what a pixel is, palette, what tRNS holds,
+# interlaced).  tRNS holds the alpha of a palette's entries or, for an
+# image without one, the sample that is transparent as two bytes a
+# color.  No palette here has alpha: that takes zlib to embed, and the
+# PDF of these is to be the same without it.
 IMAGES = [
     # a: two colors, a bit a pixel: red on the left, blue on the right
     (3, 1, halves, [RED, BLUE], None, False),
@@ -55,6 +57,25 @@ IMAGES = [
     (2, 8, lambda x, y: (RED, GREEN, BLUE, YELLOW)[quadrants(x, y)], None, None, True),
     # h: the same in a palette, interlaced
     (3, 8, quadrants, [RED, GREEN, BLUE, YELLOW], None, True),
+    # i: as d, with white transparent
+    (0, 1, halves, None, [0, 1], False),
+    # j: as e, with the third shade transparent
+    (0, 2, quadrants, None, [0, 2], False),
+    # k: as f, with the fourth shade transparent
+    (0, 4, lambda x, y: 15 - 2 * columns(x, y), None, [0, 9], False),
+    # l: gray, 8 bits a pixel: a darker shade a column, from white, with
+    # the fourth shade transparent
+    (0, 8, lambda x, y: 255 - 32 * columns(x, y), None, [0, 159], False),
+    # m: 8 bits a sample: four colors, a quadrant each, with green
+    # transparent
+    (
+        2,
+        8,
+        lambda x, y: (RED, GREEN, BLUE, YELLOW)[quadrants(x, y)],
+        None,
+        [0, 0, 0, 255, 0, 0],
+        False,
+    ),
 ]
 
 # Where the rows and columns of each of the seven passes of an
@@ -88,7 +109,7 @@ def rows(color_type, bits, pixel, xs, ys):
     return data
 
 
-def png(color_type, bits, pixel, palette, alpha, interlaced):
+def png(color_type, bits, pixel, palette, trns, interlaced):
     if interlaced:
         raw = b"".join(
             rows(color_type, bits, pixel, range(x0, SIZE, dx), range(y0, SIZE, dy))
@@ -103,8 +124,8 @@ def png(color_type, bits, pixel, palette, alpha, interlaced):
     )
     if palette:
         data += chunk(b"PLTE", b"".join(bytes(color) for color in palette))
-    if alpha:
-        data += chunk(b"tRNS", bytes(alpha))
+    if trns:
+        data += chunk(b"tRNS", bytes(trns))
     # Stored, not compressed, so that the bytes are the same everywhere.
     data += chunk(b"IDAT", zlib.compress(raw, 0))
     data += chunk(b"IEND", b"")

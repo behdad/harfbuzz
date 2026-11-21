@@ -292,7 +292,10 @@ struct hb_pdf_resources_t
   /* Add an XObject image, return resource name index.
    * idat_data/idat_len is the concatenated PNG IDAT payload (zlib data).
    * colors counts PNG channels, including alpha; for indexed, pass 1.
-   * plte/plte_len is the PLTE chunk data for indexed images (may be null). */
+   * plte/plte_len is the PLTE chunk data for indexed images (may be null).
+   * trns/trns_len is the tRNS chunk data (may be null): the alphas of the
+   * palette's entries or, without a palette, the one sample that is
+   * transparent. */
   unsigned add_xobject_png_image (const char *idat_data, unsigned idat_len,
 				  unsigned width, unsigned height,
 				  unsigned colors, unsigned bits,
@@ -339,6 +342,24 @@ struct hb_pdf_resources_t
       unsigned color_channels = has_alpha ? colors - 1 : colors;
       obj.append_str (color_channels == 1 ? "/DeviceGray" : "/DeviceRGB");
       obj.append_c ('\n');
+
+      /* An image with no alpha of its own can name one sample that is
+       * transparent: a 16-bit number for each of its colors, whatever
+       * their depth, of which only as many bits as a sample has count.
+       * That is a color key mask, which takes a range for each color. */
+      if (!has_alpha && !plte && trns && trns_len == 2 * colors)
+      {
+	obj.append_str ("/Mask [");
+	for (unsigned i = 0; i < colors; i++)
+	{
+	  unsigned v = (((unsigned) trns[2 * i] << 8) | trns[2 * i + 1]) & ((1u << bits) - 1);
+	  if (i) obj.append_c (' ');
+	  obj.append_unsigned (v);
+	  obj.append_c (' ');
+	  obj.append_unsigned (v);
+	}
+	obj.append_str ("]\n");
+      }
     }
 
     /* Build a soft mask for explicit alpha or indexed tRNS transparency. */
@@ -909,6 +930,8 @@ hb_pdf_paint_image (hb_paint_funcs_t *,
 
   /* A truecolor PLTE is advisory, not an indexed color space. */
   if (color_type != 3) { plte_data = nullptr; plte_len = 0; }
+  /* The tRNS of an indexed image is for its palette, if it has one. */
+  else if (!plte_data) { trns_data = nullptr; trns_len = 0; }
 
   unsigned im_idx = res->add_xobject_png_image (idat.arrayZ, idat.length,
 						 png_w, png_h,
