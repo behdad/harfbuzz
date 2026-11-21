@@ -298,10 +298,13 @@ DECLARE_NULL_INSTANCE (hb_paint_funcs_t);
  * neighbor's, on each side.  Between two other stops that differ in
  * alpha, the color is not linear in the offset; stops are added along
  * its curve, as many as it takes to stay within a level or two of it.
- * Returns false if @stops are to be used as they are. */
+ * Returns false if @stops are to be used as they are.  No more than
+ * @max_segments stretches are made of the way from one stop to the
+ * next. */
 static inline bool
 hb_paint_premultiply_color_stops (const hb_color_stop_t *stops, unsigned count,
-				  hb_vector_t<hb_color_stop_t> &out)
+				  hb_vector_t<hb_color_stop_t> &out,
+				  unsigned max_segments = 16)
 {
   bool differ = false;
   for (unsigned i = 1; i < count && !differ; i++)
@@ -311,7 +314,8 @@ hb_paint_premultiply_color_stops (const hb_color_stop_t *stops, unsigned count,
     return false;
 
   /* Long color lines only get the transparent stops fixed. */
-  unsigned max_segments = count <= 256 ? 16 : 1;
+  if (count > 256)
+    max_segments = 1;
 
   if (unlikely (!out.alloc (count + count / 2)))
     return false;
@@ -376,6 +380,43 @@ hb_paint_premultiply_color_stops (const hb_color_stop_t *stops, unsigned count,
     }
   }
   return !out.in_error ();
+}
+
+/* The same for the color line of a sweep gradient that
+ * hb_paint_sweep_gradient_tiles() is to tile, and whose stops span
+ * @span radians.  If it repeats or reflects, each period that has a
+ * part within the circle takes a tile for every two stops next to each
+ * other, and after HB_PAINT_MAX_SWEEP_TILES tiles the rest of the
+ * circle is left unpainted.  Getting all the way around comes first:
+ * stops are added only as far as the tiles still do, and if they
+ * cannot with any added, @stops are to be used as they are. */
+static inline bool
+hb_paint_premultiply_sweep_color_stops (const hb_color_stop_t *stops, unsigned count,
+					hb_paint_extend_t extend, float span,
+					hb_vector_t<hb_color_stop_t> &out)
+{
+  unsigned max_count = (unsigned) -1;
+  if (extend == HB_PAINT_EXTEND_REPEAT || extend == HB_PAINT_EXTEND_REFLECT)
+  {
+    /* The ends of the circle may cut a first period and a last one. */
+    float periods = floorf (HB_2_PI / fabsf (span)) + 2.f;
+    /* Reversed to catch NaN. */
+    if (!(periods <= HB_PAINT_MAX_SWEEP_TILES))
+      return false;
+    max_count = (unsigned) (HB_PAINT_MAX_SWEEP_TILES / periods) + 1;
+  }
+  if (max_count < count)
+    return false;
+
+  for (unsigned max_segments = 16; max_segments; max_segments /= 2)
+  {
+    out.resize (0);
+    if (!hb_paint_premultiply_color_stops (stops, count, out, max_segments))
+      return false;
+    if (out.length <= max_count)
+      return true;
+  }
+  return false;
 }
 
 

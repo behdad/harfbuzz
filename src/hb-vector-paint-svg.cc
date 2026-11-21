@@ -817,7 +817,8 @@ hb_vector_paint_sweep_gradient (hb_paint_funcs_t *,
 
   float mn, mx;
   hb_paint_normalize_color_line (stops.arrayZ, stops.length, &mn, &mx);
-  paint->premultiply_color_stops ();
+  paint->premultiply_sweep_color_stops (hb_color_line_get_extend (color_line),
+					 (mx - mn) * (end_angle - start_angle));
 
   /* Shift the angle range to compensate for rescaling stops
    * to [0, 1]. */

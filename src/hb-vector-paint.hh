@@ -115,6 +115,17 @@ struct hb_vector_paint_t
       hb_swap (color_stops_scratch, out);
   }
 
+  /* The same for the color line of a sweep gradient, whose stops span
+   * @span radians; see hb_paint_premultiply_sweep_color_stops(). */
+  void premultiply_sweep_color_stops (hb_paint_extend_t extend, float span)
+  {
+    hb_vector_t<hb_color_stop_t> out;
+    if (hb_paint_premultiply_sweep_color_stops (color_stops_scratch.arrayZ,
+						color_stops_scratch.length,
+						extend, span, out))
+      hb_swap (color_stops_scratch, out);
+  }
+
   void set_precision (unsigned p)
   {
     p = hb_min (p, 12u);

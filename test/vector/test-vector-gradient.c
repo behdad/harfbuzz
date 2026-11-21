@@ -45,6 +45,7 @@ typedef struct
 {
   const hb_color_stop_t *stops;
   unsigned count;
+  hb_paint_extend_t extend;
 } line_t;
 
 static unsigned
@@ -65,7 +66,7 @@ gradient_color_stops (hb_color_line_t *cl, void *cl_data,
 
 static hb_paint_extend_t
 gradient_extend (hb_color_line_t *cl, void *cl_data, void *user_data)
-{ return HB_PAINT_EXTEND_PAD; }
+{ return ((const line_t *) cl_data)->extend; }
 
 /* Paints a linear gradient with the stops of @line, and returns the
  * document as a string. */
@@ -157,7 +158,7 @@ color_at (const stop_t *stops, unsigned n, float t, int premultiplied, float *ou
 static unsigned
 check (const hb_color_stop_t *stops, unsigned count)
 {
-  line_t line = {stops, count};
+  line_t line = {stops, count, HB_PAINT_EXTEND_PAD};
 
   stop_t given[MAX_STOPS];
   for (unsigned i = 0; i < count; i++)
@@ -199,6 +200,201 @@ check (const hb_color_stop_t *stops, unsigned count)
   free (pdf);
 
   return n;
+}
+
+/* A sweep gradient is written as wedges around its center, a limited
+ * number of them.  Check that the stops added for a viewer to come to
+ * COLR's colors are not so many that the wedges run out before they
+ * are all the way around. */
+
+/* Directions from the center of a sweep, a tenth of a degree apart. */
+#define DIRECTIONS 3600
+
+/* Paints a sweep gradient around the origin that repeats the stops of
+ * @line every @period radians, and returns the document, which is @len
+ * long. */
+static char *
+render_sweep (hb_vector_format_t format, line_t *line, float period, unsigned *len)
+{
+  hb_vector_paint_t *paint = hb_vector_paint_create_or_fail (format);
+  assert (paint);
+  hb_vector_extents_t extents = {-100, -100, 200, 200};
+  hb_vector_paint_set_extents (paint, &extents);
+  hb_paint_funcs_t *funcs = hb_vector_paint_get_funcs (paint);
+
+  hb_color_line_t color_line = {0};
+  color_line.data = line;
+  color_line.get_color_stops = gradient_color_stops;
+  color_line.get_extend = gradient_extend;
+
+  hb_paint_push_clip_rectangle (funcs, paint, -100, -100, 100, 100);
+  hb_paint_sweep_gradient (funcs, paint, &color_line, 0, 0, 0, period);
+  hb_paint_pop_clip (funcs, paint);
+
+  hb_blob_t *blob = hb_vector_paint_render (paint);
+  assert (blob);
+  const char *data = hb_blob_get_data (blob, len);
+  char *doc = (char *) malloc (*len + 1);
+  assert (doc);
+  memcpy (doc, data, *len);
+  doc[*len] = '\0';
+  hb_blob_destroy (blob);
+  hb_vector_paint_destroy (paint);
+  return doc;
+}
+
+static const char *
+find (const char *data, unsigned len, const char *needle)
+{
+  unsigned n = (unsigned) strlen (needle);
+  for (unsigned i = 0; i + n <= len; i++)
+    if (!memcmp (data + i, needle, n))
+      return data + i;
+  return NULL;
+}
+
+/* Marks the directions from (@cx, @cy) that a wedge covers: those
+ * between the @n points at @xy, which are within half a turn. */
+static void
+mark_directions (unsigned char *seen, float cx, float cy, const float *xy, unsigned n)
+{
+  const double per_radian = DIRECTIONS / 2 / 3.14159265358979323846;
+  double first = 0, lo = 0, hi = 0;
+  int found = 0;
+  for (unsigned i = 0; i < n; i++)
+  {
+    double dx = xy[2 * i] - cx, dy = xy[2 * i + 1] - cy;
+    if (dx * dx + dy * dy < 1.)
+      continue;
+    double a = atan2 (dy, dx) * per_radian;
+    if (!found)
+    {
+      found = 1;
+      first = a;
+      continue;
+    }
+    double d = a - first;
+    while (d > DIRECTIONS / 2) d -= DIRECTIONS;
+    while (d < -DIRECTIONS / 2) d += DIRECTIONS;
+    if (d < lo) lo = d;
+    if (d > hi) hi = d;
+  }
+  if (!found)
+    return;
+
+  /* A direction is in the middle of its tenth of a degree.  The points
+   * are rounded as they are written: a hundredth of a degree of slack. */
+  long from = (long) ceil (first + lo - 0.5 - 0.1);
+  long to = (long) floor (first + hi - 0.5 + 0.1);
+  for (long k = from; k <= to; k++)
+    seen[((k % DIRECTIONS) + DIRECTIONS) % DIRECTIONS] = 1;
+}
+
+/* Marks the directions that the wedges of an SVG sweep cover, each a
+ * path from the center, and returns how many wedges there are. */
+static unsigned
+svg_sweep_directions (const char *doc, unsigned len, unsigned char *seen)
+{
+  static const char start[] = "<path d=\"M";
+  const unsigned start_len = sizeof (start) - 1;
+  unsigned wedges = 0;
+  for (const char *p = doc; p + start_len <= doc + len; p++)
+  {
+    if (*p != '<' || memcmp (p, start, start_len))
+      continue;
+    p += start_len;
+
+    float xy[2 * 8];
+    unsigned n = 0;
+    while (*p && *p != 'Z' && *p != '"')
+    {
+      if ((*p >= '0' && *p <= '9') || *p == '-' || *p == '.')
+      {
+	char *end;
+	assert (n < 2 * 8);
+	xy[n++] = strtof (p, &end);
+	assert (end > p);
+	p = end;
+      }
+      else
+	p++;
+    }
+    assert (n >= 6 && n % 2 == 0);
+    mark_directions (seen, xy[0], xy[1], xy + 2, n / 2 - 1);
+    wedges++;
+  }
+  return wedges;
+}
+
+/* The same for a PDF sweep, a mesh of patches: a flag, twelve points
+ * of two 16-bit coordinates, and four colors of three bytes.  The
+ * first point is the center, and the fourth to the seventh are the
+ * far side. */
+static unsigned
+pdf_sweep_directions (const char *doc, unsigned len, unsigned char *seen)
+{
+  const char *shading = find (doc, len, "/ShadingType 6 /ColorSpace /DeviceRGB");
+  assert (shading);
+  unsigned rest = len - (unsigned) (shading - doc);
+
+  float lo[2], hi[2];
+  const char *decode = find (shading, rest, "/Decode [");
+  assert (decode);
+  assert (4 == sscanf (decode, "/Decode [%f %f %f %f", &lo[0], &hi[0], &lo[1], &hi[1]));
+  unsigned length;
+  const char *l = find (shading, rest, "/Length ");
+  assert (l);
+  assert (1 == sscanf (l, "/Length %u", &length));
+  const char *stream = find (shading, rest, "stream\n");
+  assert (stream);
+  const unsigned char *p = (const unsigned char *) stream + strlen ("stream\n");
+  assert ((const char *) p + length <= doc + len);
+
+  const unsigned patch = 1 + 12 * 4 + 4 * 3;
+  assert (length % patch == 0);
+  for (unsigned i = 0; i < length / patch; i++, p += patch)
+  {
+    float xy[2 * 12];
+    for (unsigned k = 0; k < 2 * 12; k++)
+      xy[k] = lo[k & 1] + (float) ((p[1 + 2 * k] << 8) | p[2 + 2 * k]) / 65535.f * (hi[k & 1] - lo[k & 1]);
+    mark_directions (seen, xy[0], xy[1], xy + 2 * 3, 4);
+  }
+  return length / patch;
+}
+
+static void
+check_sweep (void)
+{
+  /* From red to a quarter of blue, every degree.  Sixteen stretches
+   * between the two, 360 times around, would be more wedges than there
+   * are to a sweep, and the last quadrant would be left unpainted.
+   * There are fewer stretches instead: still several to a period, and
+   * wedges in every direction. */
+  hb_color_stop_t stops[] = {
+    {0.f, 0, HB_COLOR (0, 0, 255, 255)},
+    {1.f, 0, HB_COLOR (255, 0, 0, 64)},
+  };
+  static const hb_vector_format_t formats[] = {HB_VECTOR_FORMAT_SVG, HB_VECTOR_FORMAT_PDF};
+  static const hb_paint_extend_t extends[] = {HB_PAINT_EXTEND_REPEAT, HB_PAINT_EXTEND_REFLECT};
+  const float degree = 3.14159265358979323846f / 180.f;
+
+  for (unsigned f = 0; f < 2; f++)
+    for (unsigned e = 0; e < 2; e++)
+    {
+      line_t line = {stops, 2, extends[e]};
+      unsigned len;
+      char *doc = render_sweep (formats[f], &line, degree, &len);
+
+      static unsigned char seen[DIRECTIONS];
+      memset (seen, 0, sizeof (seen));
+      unsigned wedges = formats[f] == HB_VECTOR_FORMAT_SVG
+			? svg_sweep_directions (doc, len, seen)
+			: pdf_sweep_directions (doc, len, seen);
+      assert (wedges >= 4 * 360);
+      for (unsigned i = 0; i < DIRECTIONS; i++)
+	assert (seen[i]);
+      free (doc);
+    }
 }
 
 int
@@ -256,6 +452,8 @@ main (void)
     };
     assert (check (stops, 2) == 2);
   }
+
+  check_sweep ();
 
   return 0;
 }

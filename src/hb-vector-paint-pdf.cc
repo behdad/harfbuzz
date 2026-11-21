@@ -1764,7 +1764,9 @@ hb_pdf_paint_sweep_gradient (hb_paint_funcs_t *,
   hb_color_stops_sort (stops.arrayZ, stops.length);
 
   hb_paint_extend_t extend = hb_color_line_get_extend (color_line);
-  paint->premultiply_color_stops ();
+  paint->premultiply_sweep_color_stops (extend,
+					 (stops.tail ().offset - stops.arrayZ[0].offset) *
+					 (end_angle - start_angle));
 
   float scx = paint->sx (cx), scy = paint->sy (cy);
   float R = hb_pdf_sweep_radius (res, scx, scy);
