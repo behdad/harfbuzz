@@ -2651,9 +2651,16 @@ hb_vector_paint_render_pdf (hb_vector_paint_t *paint)
 {
   if (!paint->has_extents)
     return nullptr;
+  /* With nothing painted, or nothing left of it, there is no page,
+   * unless the page has a background to show. */
   if (!paint->group_stack.length ||
       !paint->group_stack.arrayZ[0].length)
-    return nullptr;
+  {
+    if (!hb_color_get_alpha (paint->background))
+      return nullptr;
+    if (unlikely (!paint->ensure_initialized ()))
+      return nullptr;
+  }
 
   hb_pdf_resources_t *res = hb_pdf_get_resources (paint);
   /* Over the document cap: the content stream refers to dropped objects. */

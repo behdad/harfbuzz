@@ -52,12 +52,14 @@
 typedef void (*scene_func_t) (hb_paint_funcs_t *funcs, void *paint, int arg);
 
 static char *
-render (hb_vector_format_t format, scene_func_t scene, int arg)
+render_on (hb_vector_format_t format, hb_color_t background,
+	   scene_func_t scene, int arg)
 {
   hb_vector_paint_t *paint = hb_vector_paint_create_or_fail (format);
   assert (paint);
   hb_vector_extents_t extents = {0, 0, 100, 100};
   hb_vector_paint_set_extents (paint, &extents);
+  hb_vector_paint_set_background (paint, background);
 
   scene (hb_vector_paint_get_funcs (paint), paint, arg);
 
@@ -73,6 +75,12 @@ render (hb_vector_format_t format, scene_func_t scene, int arg)
   hb_blob_destroy (blob);
   hb_vector_paint_destroy (paint);
   return copy;
+}
+
+static char *
+render (hb_vector_format_t format, scene_func_t scene, int arg)
+{
+  return render_on (format, HB_COLOR (0, 0, 0, 0), scene, arg);
 }
 
 /* strstr(), for a string that ends at @end.  The documents here run to
@@ -773,6 +781,47 @@ test_root_pdf (void)
 }
 
 static void
+empty_scene (hb_paint_funcs_t *funcs, void *paint, int arg)
+{
+  (void) funcs;
+  (void) paint;
+  (void) arg;
+}
+
+/* A page with a background is rendered when there is nothing on it:
+ * where CLEAR has left nothing of the root, and where nothing was
+ * painted. */
+static void
+test_background_only (void)
+{
+  static const scene_func_t scenes[] = {root_scene, empty_scene};
+  for (unsigned i = 0; i < sizeof (scenes) / sizeof (scenes[0]); i++)
+  {
+    char *doc = render_on (HB_VECTOR_FORMAT_PDF, GREEN,
+			   scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
+    check_pdf (doc);
+    assert (count (doc, "stream\n0 1 0 rg\n0 0 100 100 re f\nendstream") == 1);
+    assert (!count (doc, PDF_RED) && !count (doc, PDF_BLUE));
+    free (doc);
+
+    /* A background that is not opaque takes a graphics state. */
+    doc = render_on (HB_VECTOR_FORMAT_PDF, HB_COLOR (0, 255, 0, 128),
+		     scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
+    check_pdf (doc);
+    assert (count (doc, "stream\nq\n/GS0 gs\n0 1 0 rg\n0 0 100 100 re f\nQ\nendstream") == 1);
+    assert (count (doc, "/ca 0.502 ") == 1);
+    free (doc);
+
+    doc = render_on (HB_VECTOR_FORMAT_SVG, GREEN,
+		     scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
+    check_svg (doc);
+    assert (count (doc, "<rect x=\"0\" y=\"-100\" width=\"100\" height=\"100\" fill=\"rgb(0,255,0)\"/>") == 1);
+    assert (!count (doc, SVG_RED) && !count (doc, SVG_BLUE));
+    free (doc);
+  }
+}
+
+static void
 test_unbalanced_pdf (void)
 {
   for (int mode = HB_PAINT_COMPOSITE_MODE_CLEAR; mode <= HB_PAINT_COMPOSITE_MODE_PLUS; mode++)
@@ -840,6 +889,7 @@ main (void)
   test_modes_pdf ();
   test_open_scopes_pdf ();
   test_root_pdf ();
+  test_background_only ();
   test_unbalanced_pdf ();
   test_nested_pdf ();
   test_reuse (HB_VECTOR_FORMAT_PDF);
