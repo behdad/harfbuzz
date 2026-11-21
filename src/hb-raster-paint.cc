@@ -1614,6 +1614,12 @@ hb_raster_paint_radial_gradient (hb_paint_funcs_t *pfuncs HB_UNUSED,
     float dr = cr1 - cr0;
     float A = cdx * cdx + cdy * cdy - dr * dr;
 
+    /* A circle of radius zero is not painted.  The one at the tip of
+     * a cone is solved for all the same, the pixel centered there
+     * being where the cone ends; but if the radius is zero at both
+     * ends it is zero all along, and nothing is painted. */
+    if (cr0 == 0.f && dr == 0.f) return;
+
     unsigned stride = surf->extents.stride;
     int ox = surf->extents.x_origin;
     int oy = surf->extents.y_origin;

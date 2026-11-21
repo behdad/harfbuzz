@@ -664,6 +664,81 @@ test_paint_radial_gradient_tip (void)
   hb_raster_paint_destroy (paint);
 }
 
+static hb_paint_extend_t
+extend_from_user_data (hb_color_line_t *, void *, void *user_data)
+{ return *(hb_paint_extend_t *) user_data; }
+
+/* Paints a radial gradient on 8 by 3 pixels, the middle row of which
+ * has its pixel centers on the line through the two centers; returns
+ * how many pixels of that row and of the other two are painted. */
+static void
+paint_radial_gradient_rows (float x0, float r0, float x1, float r1,
+			    hb_paint_extend_t extend,
+			    unsigned *middle, unsigned *others)
+{
+  hb_raster_paint_t *paint = hb_raster_paint_create_or_fail ();
+  g_assert_nonnull (paint);
+  hb_paint_funcs_t *funcs = hb_raster_paint_get_funcs (paint);
+  hb_raster_extents_t extents = {0, 0, 8, 3, 0};
+  hb_raster_paint_set_extents (paint, &extents);
+
+  hb_color_line_t line = {};
+  line.get_color_stops = two_color_stops;
+  line.get_extend = extend_from_user_data;
+  line.get_extend_user_data = &extend;
+
+  hb_paint_push_clip_rectangle (funcs, paint, 0, 0, 8, 3);
+  hb_paint_radial_gradient (funcs, paint, &line, x0, 1.5f, r0, x1, 1.5f, r1);
+  hb_paint_pop_clip (funcs, paint);
+
+  hb_raster_image_t *img = hb_raster_paint_render (paint);
+  g_assert_nonnull (img);
+  hb_raster_extents_t ext;
+  hb_raster_image_get_extents (img, &ext);
+  const uint8_t *buf = hb_raster_image_get_buffer (img);
+  *middle = *others = 0;
+  for (unsigned y = 0; y < 3; y++)
+    for (unsigned x = 0; x < 8; x++)
+      if (buf[y * ext.stride + x * 4 + 3])
+	(*(y == 1 ? middle : others))++;
+
+  hb_raster_image_destroy (img);
+  hb_raster_paint_destroy (paint);
+}
+
+/* If the radius is zero at both ends of a radial gradient it is zero
+ * all along, and circles of radius zero are not painted: nothing is,
+ * not even on the line through the two centers, where they are. */
+static void
+test_paint_radial_gradient_zero_radii (void)
+{
+  const hb_paint_extend_t extends[] = {HB_PAINT_EXTEND_PAD,
+				       HB_PAINT_EXTEND_REPEAT,
+				       HB_PAINT_EXTEND_REFLECT};
+  for (hb_paint_extend_t extend : extends)
+  {
+    unsigned middle, others;
+
+    /* Two centers, and one. */
+    paint_radial_gradient_rows (0.f, 0.f, 8.f, 0.f, extend, &middle, &others);
+    g_assert_cmpuint (middle, ==, 0);
+    g_assert_cmpuint (others, ==, 0);
+    paint_radial_gradient_rows (4.f, 0.f, 4.f, 0.f, extend, &middle, &others);
+    g_assert_cmpuint (middle, ==, 0);
+    g_assert_cmpuint (others, ==, 0);
+
+    /* A radius of zero at one end alone is the tip of a cone, or the
+     * middle of rings: those are painted, the pixel centered there
+     * too. */
+    paint_radial_gradient_rows (0.5f, 0.f, 7.5f, 3.f, extend, &middle, &others);
+    g_assert_cmpuint (middle, ==, 8);
+    g_assert_cmpuint (others, >, 0);
+    paint_radial_gradient_rows (4.5f, 0.f, 4.5f, 3.f, extend, &middle, &others);
+    g_assert_cmpuint (middle, ==, 8);
+    g_assert_cmpuint (others, ==, 16);
+  }
+}
+
 static void
 test_set_extents_while_painting (void)
 {
@@ -1184,6 +1259,7 @@ main (int argc, char **argv)
   hb_test_add (test_set_extents_while_painting);
   hb_test_add (test_clip_rectangle_transformed);
   hb_test_add (test_paint_radial_gradient_tip);
+  hb_test_add (test_paint_radial_gradient_zero_radii);
   hb_test_add (test_image_bgra);
   hb_test_add (test_image_extents);
   hb_test_add (test_image_bgra_rows);
