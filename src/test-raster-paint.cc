@@ -376,6 +376,50 @@ main ()
     hb_always_assert (!byte);
   hb_raster_image_destroy (image);
 
+  /* An image costs a pass over the clip and one over itself.  One that
+   * is shrunk is read at a grid of places for each pixel, and costs
+   * those as well: here four texels to the pixel, read two by two. */
+  static uint8_t grid_texels[32 * 32 * 4];
+  hb_memset (grid_texels, 0xFF, sizeof (grid_texels));
+  hb_blob_t *grid_blob = hb_blob_create ((const char *) grid_texels, sizeof (grid_texels),
+					 HB_MEMORY_MODE_READONLY, nullptr, nullptr);
+  hb_glyph_extents_t whole_extents = {0, 32, 32, -32};
+  hb_glyph_extents_t shrunk_extents = {0, 8, 8, -8};
+  hb_raster_paint_set_extents (paint, &root);
+  hb_paint_push_clip_rectangle (funcs, paint, 0.f, 0.f, 32.f, 32.f);
+  before = paint->pixel_remaining;
+  hb_paint_image (funcs, paint, grid_blob, 32, 32, HB_PAINT_IMAGE_FORMAT_BGRA,
+		  0.f, &whole_extents);
+  hb_always_assert (before - paint->pixel_remaining == 32 * 32 + 32 * 32);
+  hb_paint_pop_clip (funcs, paint);
+  hb_paint_push_clip_rectangle (funcs, paint, 0.f, 0.f, 8.f, 8.f);
+  before = paint->pixel_remaining;
+  hb_paint_image (funcs, paint, grid_blob, 32, 32, HB_PAINT_IMAGE_FORMAT_BGRA,
+		  0.f, &shrunk_extents);
+  hb_always_assert (before - paint->pixel_remaining == 8 * 8 + 32 * 32 + 8 * 8 * 2 * 2);
+  hb_paint_pop_clip (funcs, paint);
+  hb_raster_image_destroy (hb_raster_paint_render (paint));
+
+  /* Out of budget, the rows that are left are not painted: here the
+   * second row of eight pixels spends it. */
+  hb_raster_paint_set_extents (paint, &root);
+  hb_paint_push_clip_rectangle (funcs, paint, 0.f, 0.f, 8.f, 8.f);
+  paint->pixel_remaining = 8 * 8 + 32 * 32 + 8 * 2 * 2 + 8;
+  hb_paint_image (funcs, paint, grid_blob, 32, 32, HB_PAINT_IMAGE_FORMAT_BGRA,
+		  0.f, &shrunk_extents);
+  hb_always_assert (paint->pixel_remaining < 0);
+  hb_paint_pop_clip (funcs, paint);
+  image = hb_raster_paint_render (paint);
+  hb_always_assert (image);
+  hb_raster_image_get_extents (image, &extents);
+  pixels = hb_raster_image_get_buffer (image);
+  for (unsigned y = 0; y < root.height; y++)
+    for (unsigned x = 0; x < root.width; x++)
+      hb_always_assert (pixels[y * extents.stride + x * 4 + 3] ==
+			(x < 8 && y < 2 ? 255 : 0));
+  hb_raster_image_destroy (image);
+  hb_blob_destroy (grid_blob);
+
   hb_raster_paint_destroy (paint);
   return 0;
 }

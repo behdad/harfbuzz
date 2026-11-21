@@ -1110,6 +1110,13 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
   float margin_u = 0.5f * (fabsf (inv_xx) + fabsf (inv_xy)) / fabsf (img_sx);
   float margin_v = 0.5f * (fabsf (inv_yx) + fabsf (inv_yy)) / fabsf (img_sy);
 
+  /* A grid costs its samples, up to 256 to a pixel, on top of the pass
+   * over the clip charged for above.  The area of the image does not
+   * pay for them: stretched one way, shrunk the other and turned, an
+   * image is shrunk along both axes of the surface and yet covers as
+   * many pixels as it has.  They are counted as they are taken. */
+  int64_t grid_samples = 0;
+
   /* The image at the pixel centered on a place in glyph space; false if
    * none of the image is there. */
   auto image_at = [&] (float gx, float gy, uint32_t *src_px) -> bool
@@ -1121,6 +1128,7 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
       if (!(u >= -margin_u && v >= -margin_v &&
 	    u <= (float) src_width + margin_u && v <= (float) src_height + margin_v))
 	return false;
+      grid_samples += nx * ny;
     }
 
     float b = 0.f, g = 0.f, r = 0.f, a = 0.f;
@@ -1183,6 +1191,18 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
     return true;
   };
 
+  /* Charges for the grid samples taken in a row; false if that leaves
+   * no budget for another.  An image that is not shrunk takes none and
+   * costs what the pass over the clip does. */
+  auto charge_grid_samples = [&] () -> bool
+  {
+    if (!grid_samples)
+      return true;
+    c->charge_work (grid_samples);
+    grid_samples = 0;
+    return c->pixel_remaining >= 0;
+  };
+
   if (clip.is_rect)
   {
     for (unsigned py = clip.min_y; py < clip.max_y; py++)
@@ -1197,6 +1217,8 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
 	  continue;
 	row[px] = hb_raster_pixel_t (hb_raster_src_over (src_px, (uint32_t) row[px]));
       }
+      if (unlikely (!charge_grid_samples ()))
+	break;
     }
   }
   else
@@ -1219,6 +1241,8 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
 	src_px = hb_raster_alpha_mul (src_px, clip_alpha);
 	row[px] = hb_raster_pixel_t (hb_raster_src_over (src_px, (uint32_t) row[px]));
       }
+      if (unlikely (!charge_grid_samples ()))
+	break;
     }
   }
 
