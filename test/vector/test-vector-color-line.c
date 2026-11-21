@@ -165,6 +165,13 @@ main (int argc, char **argv)
   assert (count ("/C0 [0 0.298 1]\n/C1 [0 0.298 1]") == 1);
   assert (count ("/C0 [0 1 0]") == 0 && count ("/C1 [0 1 0]") == 0);
 
+  /* j: a linear gradient whose P2 is at its P0 is ill-formed, like g,
+   * whose P1 is. */
+  render (HB_VECTOR_FORMAT_SVG, 'j');
+  assert (count ("Gradient") == 0);
+  render (HB_VECTOR_FORMAT_PDF, 'j');
+  assert (count ("/ShadingType") == 0);
+
   hb_blob_destroy (blob);
   hb_font_destroy (font);
   hb_face_destroy (face);

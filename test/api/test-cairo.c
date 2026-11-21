@@ -181,9 +181,10 @@ test_hb_cairo_color_line_no_length (void)
     {'d', "------"}, /* as b, repeating */
     {'e', "------"}, /* as c, reflecting */
     {'f', "rrrrrr"}, /* radial, one red stop */
-    {'g', "------"}, /* linear, along no line */
+    {'g', "------"}, /* linear, along no line: P1 at P0 */
     {'h', "------"}, /* radial, of one circle */
     {'i', "rrbbbb"}, /* as b, with a green stop between the two */
+    {'j', "------"}, /* linear, P2 at P0 */
   };
   for (unsigned i = 0; i < G_N_ELEMENTS (tests); i++)
   {

@@ -1268,6 +1268,8 @@ test_hb_paint_color_stops_budget (void)
     colr_data[50 + 4 + i * 4 + 3] = 20;
   colr_data[50 + 20] = 4; /* PaintLinearGradient */
   colr_data[50 + 23] = 16;
+  colr_data[50 + 29] = 1; /* x1: P1 and P2 are not at P0, */
+  colr_data[50 + 35] = 1; /* y2: or it would not be painted */
   colr_data[50 + 36 + 2] = 100; /* ColorLine */
   colr_data[689] = 1; /* ClipList: glyph 0 */
   colr_data[689 + 4] = 1;

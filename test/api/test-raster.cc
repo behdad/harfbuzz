@@ -736,11 +736,24 @@ em_square_pixel (hb_raster_image_t *img, unsigned x, unsigned y)
   return '?';
 }
 
+/* What is painted along the row across the middle of @img, at 4, 21,
+ * 23, 32, 39 and 42 of its 64 pixels, and in a corner. */
+static void
+em_square_pixels (hb_raster_image_t *img, char pixels[8])
+{
+  static const unsigned at[7][2] = {{4, 32}, {21, 32}, {23, 32}, {32, 32},
+				    {39, 32}, {42, 32}, {60, 4}};
+  for (unsigned i = 0; i < 7; i++)
+    pixels[i] = em_square_pixel (img, at[i][0], at[i][1]);
+  pixels[7] = 0;
+}
+
 /* A color line whose stops all share one offset has no length.  If it
  * pads it paints the first stop's color before that offset and the
  * last stop's from it on, which is one color if it has one stop; if
  * it repeats or reflects, nothing.  A gradient along no line, or of
- * two circles that are one, is ill-formed and paints nothing. */
+ * two circles that are one, is ill-formed and paints nothing; so is a
+ * linear gradient whose P1 or P2 is at its P0. */
 static void
 test_paint_color_line_no_length (void)
 {
@@ -748,8 +761,6 @@ test_paint_color_line_no_length (void)
   hb_font_t *font = hb_font_create (face);
   hb_font_set_scale (font, 64, 64);
 
-  /* What is painted along the row across the middle, at 4, 21, 23,
-   * 32, 39 and 42 of its 64 pixels, and in a corner. */
   const struct {
     char unicode;
     const char *pixels;
@@ -760,21 +771,38 @@ test_paint_color_line_no_length (void)
     {'d', "-------"}, /* as b, repeating */
     {'e', "-------"}, /* as c, reflecting */
     {'f', "rrrrrrr"}, /* radial, one red stop */
-    {'g', "-------"}, /* linear, along no line */
+    {'g', "-------"}, /* linear, along no line: P1 at P0 */
     {'h', "-------"}, /* radial, of one circle */
     {'i', "rrbbbbb"}, /* as b, with a green stop between the two */
+    {'j', "-------"}, /* linear, P2 at P0 */
+    {'k', "r?????b"}, /* linear, from red at 12.8 to blue at 51.2 */
+    {'l', "-------"}, /* the same, P2 at P0 */
   };
   for (const auto &t : tests)
   {
     hb_raster_image_t *img = paint_em_square (font, t.unicode);
-    char pixels[8] = {em_square_pixel (img, 4, 32),
-		      em_square_pixel (img, 21, 32),
-		      em_square_pixel (img, 23, 32),
-		      em_square_pixel (img, 32, 32),
-		      em_square_pixel (img, 39, 32),
-		      em_square_pixel (img, 42, 32),
-		      em_square_pixel (img, 60, 4),
-		      0};
+    char pixels[8];
+    em_square_pixels (img, pixels);
+    g_assert_cmpstr (pixels, ==, t.pixels);
+    hb_raster_image_destroy (img);
+  }
+
+  /* The anchors are where the variation deltas put them: at the end
+   * of the font's axis, P2 of k is at its P0, and that of l is not. */
+  hb_variation_t wght = {HB_TAG ('w','g','h','t'), 1.f};
+  hb_font_set_variations (font, &wght, 1);
+  const struct {
+    char unicode;
+    const char *pixels;
+  } varied[] = {
+    {'k', "-------"},
+    {'l', "r?????b"},
+  };
+  for (const auto &t : varied)
+  {
+    hb_raster_image_t *img = paint_em_square (font, t.unicode);
+    char pixels[8];
+    em_square_pixels (img, pixels);
     g_assert_cmpstr (pixels, ==, t.pixels);
     hb_raster_image_destroy (img);
   }

@@ -4,6 +4,7 @@ from pathlib import Path
 from fontTools.fontBuilder import FontBuilder
 from fontTools.colorLib.builder import buildCOLR, buildCPAL
 from fontTools.pens.ttGlyphPen import TTGlyphPen
+from fontTools.varLib import builder as varBuilder
 
 RED, BLUE, GREEN = 0, 1, 2
 
@@ -18,7 +19,7 @@ NEAR = [(0.125, RED), (0.125, BLUE)]
 FULL = [(0, RED), (1, BLUE)]
 
 
-def linear(stops, extend="pad", x1=800):
+def linear(stops, extend="pad", x1=800, y2=1100):
     # From x = 200 to x1, so that 0.25 is at x = 350 for x1 = 800.
     return dict(
         Format=4,
@@ -28,8 +29,24 @@ def linear(stops, extend="pad", x1=800):
         x1=x1,
         y1=500,
         x2=200,
-        y2=1100,
+        y2=y2,
     )
+
+
+# A linear gradient is ill-formed if P1 or P2 is at P0, where they are
+# once their variation deltas are applied.  The font has one axis, and
+# these are the deltas at its end of the six coordinates of the two
+# gradients that vary: each moves P2 by 600, onto P0 or away from it.
+DELTAS = [[0], [0], [0], [0], [0], [-600]] + [[0], [0], [0], [0], [0], [600]]
+
+
+def var_linear(y2, var_index_base):
+    paint = linear(FULL, y2=y2)
+    paint["Format"] = 5
+    paint["VarIndexBase"] = var_index_base
+    for stop in paint["ColorLine"]["ColorStop"]:
+        stop["VarIndexBase"] = 0xFFFFFFFF
+    return paint
 
 
 def radial(stops, extend="pad", r1=500):
@@ -68,6 +85,9 @@ CASES = [
     linear(FULL, x1=200),  # g: ill-formed, along no line: nothing
     radial(FULL, r1=100),  # h: ill-formed, one circle: nothing
     linear(THREE),  # i: as b, with no green
+    linear(FULL, y2=500),  # j: ill-formed, P2 at P0: nothing
+    var_linear(1100, 0),  # k: red to blue; nothing at the end of the axis
+    var_linear(500, 6),  # l: nothing; red to blue at the end of the axis
 ]
 
 
@@ -96,6 +116,7 @@ def build(name):
     )
     fb.setupOS2(sTypoAscender=1000, sTypoDescender=0, usWinAscent=1000, usWinDescent=0)
     fb.setupPost()
+    fb.setupFvar([("wght", 0, 0, 1, "Weight")], [])
     paints = {
         glyph: dict(Format=10, Glyph="square", Paint=paint)
         for glyph, paint in zip(names[1:], CASES)
@@ -105,6 +126,10 @@ def build(name):
         version=1,
         glyphMap=fb.font.getReverseGlyphMap(),
         clipBoxes={glyph: (0, 0, 1000, 1000) for glyph in names[1:-1]},
+        varStore=varBuilder.buildVarStore(
+            varBuilder.buildVarRegionList([{"wght": (0, 1, 1)}], ["wght"]),
+            [varBuilder.buildVarData([0], DELTAS)],
+        ),
     )
     fb.font["CPAL"] = buildCPAL([[(1, 0, 0, 1), (0, 0.3, 1, 1), (0, 1, 0, 1)]])
     fb.font.recalcTimestamp = False
