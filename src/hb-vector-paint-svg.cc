@@ -967,41 +967,27 @@ hb_vector_svg_append_group_or_use (hb_vector_paint_t *paint,
  * space of the document's root; the rectangle is in the space of the
  * mask, which is the one that the current group starts in.
  *
- * A fill is a rectangle of one size, under the clip that bounds it.
  * The rectangle of a mask is not under the clips and transforms of
- * what it masks, which may be painted further away than a rectangle
- * of one size reaches, so it is put where that is: around the bounds,
- * and past them on every side, as its edges are antialiased and must
- * not come to lie on those of what is masked.  It is the rectangle of
- * a fill only where there are no bounds to go by. */
+ * what it masks, so it is put around the bounds.  It is the rectangle
+ * of a fill only where there are no bounds to go by. */
 static void
 hb_vector_svg_append_mask_rect (hb_vector_paint_t *paint,
 				hb_vector_buf_t &buf,
 				const hb_bounds_t<> &bounds)
 {
-  float x[4], y[4];
-  if (hb_vector_paint_t::corners (bounds, paint->group_ctm (), x, y) == hb_bounds_t<>::BOUNDED)
+  hb_extents_t<> box;
+  if (hb_vector_paint_t::box_around (bounds, paint->group_ctm (), &box))
   {
-    hb_extents_t<> e;
-    for (unsigned i = 0; i < 4; i++)
-      e.add_point (x[i], y[i]);
-    float dx = (e.xmax - e.xmin) / 2.f + 1.f, dy = (e.ymax - e.ymin) / 2.f + 1.f;
-    float xmin = floorf (e.xmin - dx), ymin = floorf (e.ymin - dy);
-    float width = ceilf (e.xmax + dx) - xmin, height = ceilf (e.ymax + dy) - ymin;
-    if (std::isfinite (xmin) && std::isfinite (ymin) &&
-	std::isfinite (width) && std::isfinite (height))
-    {
-      buf.append_str ("<rect x=\"");
-      buf.append_num (xmin);
-      buf.append_str ("\" y=\"");
-      buf.append_num (ymin);
-      buf.append_str ("\" width=\"");
-      buf.append_num (width);
-      buf.append_str ("\" height=\"");
-      buf.append_num (height);
-      buf.append_c ('"');
-      return;
-    }
+    buf.append_str ("<rect x=\"");
+    buf.append_num (box.xmin);
+    buf.append_str ("\" y=\"");
+    buf.append_num (box.ymin);
+    buf.append_str ("\" width=\"");
+    buf.append_num (box.xmax - box.xmin);
+    buf.append_str ("\" height=\"");
+    buf.append_num (box.ymax - box.ymin);
+    buf.append_c ('"');
+    return;
   }
   buf.append_str ("<rect x=\"-32767\" y=\"-32767\" width=\"65534\" height=\"65534\"");
 }

@@ -229,13 +229,22 @@ struct hb_vector_paint_t
     return HB_TRANSFORM_IDENTITY;
   }
 
+  /* The bounds of what the open clips let through, in the space of the
+   * document's root. */
+  hb_bounds_t<> open_clips () const
+  {
+    hb_bounds_t<> bounds;
+    for (const auto &scope : scopes)
+      bounds.intersect (scope.clip);
+    return bounds;
+  }
+
   /* Records that the current group has painted within @bounds, which
    * are in the space of the document's root, as much as the open clips
    * let through; with no @bounds, all that they let through. */
   void painted (hb_bounds_t<> bounds = hb_bounds_t<> ())
   {
-    for (const auto &scope : scopes)
-      bounds.intersect (scope.clip);
+    bounds.intersect (open_clips ());
     current_group ().bounds.union_ (bounds);
   }
 
@@ -249,12 +258,7 @@ struct hb_vector_paint_t
    * they do not bound it, or the transform in effect has no inverse to
    * bring the bounds back through. */
   hb_bounds_t<>::status_t clip_corners (float x[4], float y[4]) const
-  {
-    hb_bounds_t<> bounds;
-    for (const auto &scope : scopes)
-      bounds.intersect (scope.clip);
-    return corners (bounds, current_ctm (), x, y);
-  }
+  { return corners (open_clips (), current_ctm (), x, y); }
 
   /* The corners of @bounds, which are in the space of the document's
    * root, in the space that @t is the transform from, in order around
@@ -280,6 +284,43 @@ struct hb_vector_paint_t
       y[i] = (-t.yx * dx + t.xx * dy) / det;
     }
     return hb_bounds_t<>::BOUNDED;
+  }
+
+  /* Sets @box to a rectangle around @bounds, which are in the space of
+   * the document's root, in the space that @t is the transform from:
+   * one for what has to cover, or hold, all that is painted within
+   * them, and is not under the clips and transforms that it was
+   * painted under.
+   *
+   * A fill is a rectangle of one size, under the clip that bounds it.
+   * What a group has painted may be further away than a rectangle of
+   * one size reaches, so this one is put where that is: around the
+   * bounds, and past them on every side by half their size and a unit,
+   * as its edges are antialiased and must not come to lie on those of
+   * what is painted.
+   *
+   * Returns false, and leaves @box as it is, if there are no bounds to
+   * go by or the transform has no inverse to bring them through. */
+  static bool box_around (const hb_bounds_t<> &bounds,
+			  const hb_transform_t<> &t,
+			  hb_extents_t<> *box)
+  {
+    float x[4], y[4];
+    if (corners (bounds, t, x, y) != hb_bounds_t<>::BOUNDED)
+      return false;
+
+    hb_extents_t<> e;
+    for (unsigned i = 0; i < 4; i++)
+      e.add_point (x[i], y[i]);
+    float dx = (e.xmax - e.xmin) / 2.f + 1.f, dy = (e.ymax - e.ymin) / 2.f + 1.f;
+    float xmin = floorf (e.xmin - dx), ymin = floorf (e.ymin - dy);
+    float xmax = ceilf (e.xmax + dx), ymax = ceilf (e.ymax + dy);
+    if (!(std::isfinite (xmin) && std::isfinite (ymin) &&
+	  std::isfinite (xmax - xmin) && std::isfinite (ymax - ymin)))
+      return false;
+
+    *box = hb_extents_t<> (xmin, ymin, xmax, ymax);
+    return true;
   }
 
   /* The radius that a sweep gradient centered at (@cx, @cy) has to
