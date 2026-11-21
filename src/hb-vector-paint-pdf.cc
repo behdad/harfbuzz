@@ -2651,13 +2651,11 @@ hb_vector_paint_render_pdf (hb_vector_paint_t *paint)
 {
   if (!paint->has_extents)
     return nullptr;
-  /* With nothing painted, or nothing left of it, there is no page,
-   * unless the page has a background to show. */
+  /* With nothing painted, or nothing left of it, the page is its
+   * background, or blank. */
   if (!paint->group_stack.length ||
       !paint->group_stack.arrayZ[0].length)
   {
-    if (!hb_color_get_alpha (paint->background))
-      return nullptr;
     if (unlikely (!paint->ensure_initialized ()))
       return nullptr;
   }

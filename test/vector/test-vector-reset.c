@@ -162,13 +162,10 @@ test_paint_render_failure (hb_vector_format_t format)
   hb_vector_paint_set_svg_prefix (fresh, "kept-");
   hb_vector_paint_set_svg_prefix (paint, "kept-");
 
-  /* An empty PDF render fails even when extents are available. */
+  /* A page with extents and nothing on it is rendered, blank. */
   hb_vector_paint_set_extents (paint, &extents);
   hb_blob_t *empty = hb_vector_paint_render (paint);
-  if (format == HB_VECTOR_FORMAT_PDF)
-    assert (!empty);
-  else
-    assert (empty);
+  assert (empty);
   hb_blob_destroy (empty);
   assert (!hb_vector_paint_get_extents (paint, NULL));
 

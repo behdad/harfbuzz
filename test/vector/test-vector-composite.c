@@ -788,17 +788,24 @@ empty_scene (hb_paint_funcs_t *funcs, void *paint, int arg)
   (void) arg;
 }
 
-/* A page with a background is rendered when there is nothing on it:
- * where CLEAR has left nothing of the root, and where nothing was
- * painted. */
+/* A page is rendered when there is nothing on it, where CLEAR has
+ * left nothing of the root and where nothing was painted: with its
+ * background if it has one, and blank if not. */
 static void
 test_background_only (void)
 {
   static const scene_func_t scenes[] = {root_scene, empty_scene};
   for (unsigned i = 0; i < sizeof (scenes) / sizeof (scenes[0]); i++)
   {
-    char *doc = render_on (HB_VECTOR_FORMAT_PDF, GREEN,
-			   scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
+    char *doc = render (HB_VECTOR_FORMAT_PDF,
+			scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
+    check_pdf (doc);
+    assert (count (doc, "<< /Length 0 >>\nstream\nendstream") == 1);
+    assert (!count (doc, PDF_RED) && !count (doc, PDF_BLUE));
+    free (doc);
+
+    doc = render_on (HB_VECTOR_FORMAT_PDF, GREEN,
+		     scenes[i], HB_PAINT_COMPOSITE_MODE_CLEAR);
     check_pdf (doc);
     assert (count (doc, "stream\n0 1 0 rg\n0 0 100 100 re f\nendstream") == 1);
     assert (!count (doc, PDF_RED) && !count (doc, PDF_BLUE));
