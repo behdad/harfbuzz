@@ -901,13 +901,20 @@ struct PaintLinearGradient
       (this+colorLine).static_get_extend, nullptr
     };
 
+    float p0x = x0 + c->instancer (varIdxBase, 0);
+    float p0y = y0 + c->instancer (varIdxBase, 1);
+    float p1x = x1 + c->instancer (varIdxBase, 2);
+    float p1y = y1 + c->instancer (varIdxBase, 3);
+    float p2x = x2 + c->instancer (varIdxBase, 4);
+    float p2y = y2 + c->instancer (varIdxBase, 5);
+
+    /* A gradient whose P1 or P2 is at its P0 is ill-formed, and is not
+     * painted. */
+    if ((p1x == p0x && p1y == p0y) || (p2x == p0x && p2y == p0y))
+      return;
+
     c->funcs->linear_gradient (c->data, &cl,
-			       x0 + c->instancer (varIdxBase, 0),
-			       y0 + c->instancer (varIdxBase, 1),
-			       x1 + c->instancer (varIdxBase, 2),
-			       y1 + c->instancer (varIdxBase, 3),
-			       x2 + c->instancer (varIdxBase, 4),
-			       y2 + c->instancer (varIdxBase, 5));
+			       p0x, p0y, p1x, p1y, p2x, p2y);
   }
 
   HBUINT8			format; /* format = 4(noVar) or 5 (Var) */

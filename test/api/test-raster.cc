@@ -837,6 +837,118 @@ test_clip_rectangle_transformed (void)
     }
 }
 
+/* ── Test: color lines of no length, and ill-formed gradients ─────── */
+
+/* Paints the glyph of @unicode at 64 pixels to the em, which it fills,
+ * and returns the 64 by 64 picture. */
+static hb_raster_image_t *
+paint_em_square (hb_font_t *font, hb_codepoint_t unicode)
+{
+  hb_codepoint_t glyph;
+  g_assert_true (hb_font_get_nominal_glyph (font, unicode, &glyph));
+
+  hb_raster_paint_t *paint = hb_raster_paint_create_or_fail ();
+  g_assert_nonnull (paint);
+  hb_raster_extents_t ext = {0, 0, 64, 64, 0};
+  hb_raster_paint_set_extents (paint, &ext);
+  hb_raster_paint_glyph (paint, font, glyph);
+  hb_raster_image_t *img = hb_raster_paint_render (paint);
+  g_assert_nonnull (img);
+  hb_raster_paint_destroy (paint);
+  return img;
+}
+
+/* Whether the pixel of @img at (@x, @y) is red, blue, or not painted:
+ * 'r', 'b' or '-', and '?' for anything else. */
+static char
+em_square_pixel (hb_raster_image_t *img, unsigned x, unsigned y)
+{
+  hb_raster_extents_t ext;
+  hb_raster_image_get_extents (img, &ext);
+  const uint8_t *p = hb_raster_image_get_buffer (img) + (size_t) y * ext.stride + x * 4;
+  /* Blue, green, red, alpha; the font's blue has a little green. */
+  if (p[3] == 0) return '-';
+  if (p[3] != 255) return '?';
+  if (p[2] == 255 && p[1] == 0 && p[0] == 0) return 'r';
+  if (p[2] == 0 && p[1] < 80 && p[0] == 255) return 'b';
+  return '?';
+}
+
+/* What is painted along the row across the middle of @img, at 4, 21,
+ * 23, 32, 39 and 42 of its 64 pixels, and in a corner. */
+static void
+em_square_pixels (hb_raster_image_t *img, char pixels[8])
+{
+  static const unsigned at[7][2] = {{4, 32}, {21, 32}, {23, 32}, {32, 32},
+				    {39, 32}, {42, 32}, {60, 4}};
+  for (unsigned i = 0; i < 7; i++)
+    pixels[i] = em_square_pixel (img, at[i][0], at[i][1]);
+  pixels[7] = 0;
+}
+
+/* A color line whose stops all share one offset has no length.  If it
+ * pads it paints the first stop's color before that offset and the
+ * last stop's from it on, which is one color if it has one stop; if
+ * it repeats or reflects, nothing.  A gradient along no line, or of
+ * two circles that are one, is ill-formed and paints nothing; so is a
+ * linear gradient whose P1 or P2 is at its P0. */
+static void
+test_paint_color_line_no_length (void)
+{
+  hb_face_t *face = hb_test_open_font_file ("fonts/colr-color-line-no-length.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_font_set_scale (font, 64, 64);
+
+  const struct {
+    char unicode;
+    const char *pixels;
+  } tests[] = {
+    {'a', "rrrrrrr"}, /* linear, one red stop */
+    {'b', "rrbbbbb"}, /* linear, red and blue at one offset: they meet at 22.4 */
+    {'c', "bbrrrbb"}, /* radial, the same: red within 9.6 of the center */
+    {'d', "-------"}, /* as b, repeating */
+    {'e', "-------"}, /* as c, reflecting */
+    {'f', "rrrrrrr"}, /* radial, one red stop */
+    {'g', "-------"}, /* linear, along no line: P1 at P0 */
+    {'h', "-------"}, /* radial, of one circle */
+    {'i', "rrbbbbb"}, /* as b, with a green stop between the two */
+    {'j', "-------"}, /* linear, P2 at P0 */
+    {'k', "r?????b"}, /* linear, from red at 12.8 to blue at 51.2 */
+    {'l', "-------"}, /* the same, P2 at P0 */
+  };
+  for (const auto &t : tests)
+  {
+    hb_raster_image_t *img = paint_em_square (font, t.unicode);
+    char pixels[8];
+    em_square_pixels (img, pixels);
+    g_assert_cmpstr (pixels, ==, t.pixels);
+    hb_raster_image_destroy (img);
+  }
+
+  /* The anchors are where the variation deltas put them: at the end
+   * of the font's axis, P2 of k is at its P0, and that of l is not. */
+  hb_variation_t wght = {HB_TAG ('w','g','h','t'), 1.f};
+  hb_font_set_variations (font, &wght, 1);
+  const struct {
+    char unicode;
+    const char *pixels;
+  } varied[] = {
+    {'k', "-------"},
+    {'l', "r?????b"},
+  };
+  for (const auto &t : varied)
+  {
+    hb_raster_image_t *img = paint_em_square (font, t.unicode);
+    char pixels[8];
+    em_square_pixels (img, pixels);
+    g_assert_cmpstr (pixels, ==, t.pixels);
+    hb_raster_image_destroy (img);
+  }
+
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+}
+
 /* Raw BGRA input and SRC_OVER must use the same byte order, including
  * on rows that are not word-aligned. */
 static void
@@ -1328,6 +1440,7 @@ main (int argc, char **argv)
   hb_test_add (test_image_edges);
   hb_test_add (test_image_png_byte_order);
   hb_test_add (test_image_png_size);
+  hb_test_add (test_paint_color_line_no_length);
   hb_test_add (test_budget_sweep);
   hb_test_add (test_paint_clipped_layers);
   hb_test_add (test_paint_hsl_luminosity_weights);
