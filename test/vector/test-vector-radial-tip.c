@@ -41,10 +41,12 @@
 typedef struct
 {
   unsigned count;
-  float offsets[3];
+  float offsets[4];
   hb_paint_extend_t extend;
   /* Whether the second stop, the blue one, is transparent. */
   int fades_out;
+  /* Whether there are four stops: two red ones, then two blue ones. */
+  int hard_stop;
 } line_t;
 
 static unsigned
@@ -58,6 +60,10 @@ get_stops (hb_color_line_t *color_line,
   static const hb_color_t colors[3] = {HB_COLOR (0, 0, 255, 255),
 				       HB_COLOR (255, 0, 0, 255),
 				       HB_COLOR (0, 255, 0, 255)};
+  static const hb_color_t hard_stop_colors[4] = {HB_COLOR (0, 0, 255, 255),
+						 HB_COLOR (0, 0, 255, 255),
+						 HB_COLOR (255, 0, 0, 255),
+						 HB_COLOR (255, 0, 0, 255)};
   line_t *line = (line_t *) color_line_data;
   (void) color_line;
   (void) user_data;
@@ -68,7 +74,7 @@ get_stops (hb_color_line_t *color_line,
     {
       stops[n].offset = line->offsets[i];
       stops[n].is_foreground = 0;
-      stops[n].color = colors[i];
+      stops[n].color = line->hard_stop ? hard_stop_colors[i] : colors[i];
       if (i == 1 && line->fades_out)
 	stops[n].color = HB_COLOR (255, 0, 0, 0);
     }
@@ -104,6 +110,7 @@ has (const char *needle)
  * where it is at 1, the one at the origin and the other @x1 to its
  * right, with the @count stops of the color line at @offsets. */
 static int fades_out;
+static int hard_stop;
 
 static hb_blob_t *
 render_stops (hb_vector_format_t format,
@@ -124,6 +131,7 @@ render_stops (hb_vector_format_t format,
     line.offsets[i] = offsets[i];
   line.extend = extend;
   line.fades_out = fades_out;
+  line.hard_stop = hard_stop;
   hb_color_line_t color_line;
   memset (&color_line, 0, sizeof (color_line));
   color_line.data = &line;
@@ -246,6 +254,22 @@ main (void)
   blob = render (HB_VECTOR_FORMAT_SVG, 100, 0, 50, 0, 1, HB_PAINT_EXTEND_PAD);
   assert (has (" cx=\"100\" cy=\"0\" r=\"50\" fx=\"0\" fy=\"0\" spreadMethod"));
   hb_blob_destroy (blob);
+
+  /* The hair is a 256th of the way to the next stop.  A cone to a
+   * circle of radius 20000, red up to a 512th along and blue from
+   * there on: started a 256th of all the way along, it would start
+   * after its red stretch, and be blue from the tip on. */
+  {
+    static const float offsets[4] = {0, 1.f / 512, 1.f / 512, 1};
+    hard_stop = 1;
+    blob = render_stops (HB_VECTOR_FORMAT_PDF, 30000, 0, 20000, 4, offsets, HB_PAINT_EXTEND_PAD);
+    assert (has ("/Coords [0.23 0 0.15 30000 0 20000]"));
+    assert (has ("/C0 [1 0 0]\n/C1 [1 0 0]"));
+    assert (has ("/C0 [0 0 1]\n/C1 [0 0 1]"));
+    assert (has ("/Bounds [0.0019"));
+    hb_blob_destroy (blob);
+    hard_stop = 0;
+  }
 
   /* Circles inside one another make no cone. */
   blob = render (HB_VECTOR_FORMAT_PDF, 10, 0, 50, 0, 1, HB_PAINT_EXTEND_PAD);

@@ -1369,12 +1369,22 @@ hb_pdf_radial_gradient_circles (hb_vector_paint_t *paint,
    * before it, where there is nothing: pdfium draws a line through the
    * tip then, across everything.  It does not if the cone starts a
    * hair after its tip, far enough for the radius to be written as
-   * more than zero.  The first color then goes on to the tip. */
+   * more than zero.  The first color then goes on to the tip, in place
+   * of what the color line does up to there.  So the hair is a 256th
+   * of the way to the next stop, which is a level of color at most,
+   * and not of the whole color line, which may be past a stop. */
   float dx = *x1 - *x0, dy = *y1 - *y0;
   if (extend == HB_PAINT_EXTEND_PAD &&
       *r0 == 0.f && *r1 > 0.f && dx * dx + dy * dy >= *r1 * *r1)
   {
-    float hair = hb_max (1.f / 256, 0.02f * paint->x_scale_factor / *r1);
+    float next = 1.f;
+    for (const auto &stop : paint->color_stops_scratch)
+      if (stop.offset > 0.f)
+      {
+	next = stop.offset;
+	break;
+      }
+    float hair = hb_max (next / 256, 0.02f * paint->x_scale_factor / *r1);
     if (hair < 0.5f)
     {
       if (unlikely (!paint->cut_color_stops (hair, 1.f)))
