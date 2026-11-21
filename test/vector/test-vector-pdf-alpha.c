@@ -186,9 +186,54 @@ painted_states (hb_blob_t *blob, char *states, unsigned size)
   states[count] = '\0';
 }
 
+/* The soft mask of a gradient is a form, and its alphas are clipped to
+ * the form's box.  A gradient fills all that the clip lets through, so
+ * the box holds that, however far it is from the gradient itself: here
+ * the gradient is at the origin, and what is painted is the color that
+ * it ends with, far to the right. */
+static void
+test_mask_box (void)
+{
+  for (unsigned fill = LINEAR; fill <= RADIAL; fill++)
+    for (unsigned clipped = 0; clipped < 2; clipped++)
+    {
+      hb_vector_paint_t *paint = hb_vector_paint_create_or_fail (HB_VECTOR_FORMAT_PDF);
+      assert (paint);
+      hb_vector_extents_t extents = {40000, 0, 20, 10};
+      hb_vector_paint_set_extents (paint, &extents);
+      hb_paint_funcs_t *funcs = hb_vector_paint_get_funcs (paint);
+
+      hb_color_line_t line = {0};
+      line.get_color_stops = gradient_color_stops;
+      line.get_extend = gradient_extend;
+
+      if (clipped)
+	hb_paint_push_clip_rectangle (funcs, paint, 40000, 0, 40020, 10);
+      if (fill == LINEAR)
+	hb_paint_linear_gradient (funcs, paint, &line, 0, 0, 10, 0, 0, 10);
+      else
+	hb_paint_radial_gradient (funcs, paint, &line, 0, 0, 0, 0, 0, 10);
+      if (clipped)
+	hb_paint_pop_clip (funcs, paint);
+
+      hb_blob_t *blob = hb_vector_paint_render (paint);
+      assert (blob);
+      hb_vector_paint_destroy (paint);
+      unsigned len;
+      const char *pdf = hb_blob_get_data (blob, &len);
+      /* A large box around the gradient, made bigger on the right
+       * for what the clip lets through. */
+      assert (find (pdf, len, clipped ? "/BBox [-32768 -32768 40031 32768]\n"
+				      : "/BBox [-32768 -32768 32768 32768]\n"));
+      hb_blob_destroy (blob);
+    }
+}
+
 int
 main (void)
 {
+  test_mask_box ();
+
   for (unsigned fill = 0; fill < N_FILLS; fill++)
     for (unsigned follower = 0; follower < N_FOLLOWERS; follower++)
     {

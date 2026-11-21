@@ -780,6 +780,107 @@ test_root_pdf (void)
   }
 }
 
+/* Asserts that the forms in @doc have boxes that hold, in order, the
+ * backdrop square ('b'), the source square ('s') or both ('u') as
+ * @which says: in lower case in a space where the squares are as far
+ * and as big as they were painted, in upper case in one where they are
+ * twice that.  A box is the one that every form has had, from -32767
+ * to 32767, made bigger on the side that what the form paints is past
+ * it, and not by much more than that takes.  A form that starts by
+ * painting white is the inverse of a mask: white, and black through
+ * the mask, over all of its box. */
+static void
+check_form_boxes (const char *doc, const char *which)
+{
+  const char *end = doc + strlen (doc);
+  unsigned n = 0;
+  for (const char *p = doc; (p = find (p, end, "/BBox [")); p++)
+  {
+    float x0, y0, x1, y1;
+    assert (sscanf (p, "/BBox [%f %f %f %f]", &x0, &y0, &x1, &y1) == 4);
+    assert (n < strlen (which));
+    char c = which[n];
+    float scale = 1;
+    if (c >= 'A' && c <= 'Z')
+    {
+      scale = 2;
+      c = (char) (c - 'A' + 'a');
+    }
+    float left = scale * (c == 's' ? FAR + 5 : FAR);
+    float width = scale * (c == 'u' ? 15 : 10);
+    assert ((int) x0 == -32767 && (int) y0 == -32767 && (int) y1 == 32767);
+    assert (left + width < x1 && x1 < left + 3 * width);
+
+    const char *stream = find (p, end, "\nstream\n");
+    assert (stream);
+    stream += 8;
+    if (!strncmp (stream, "1 g\n", 4))
+    {
+      float x, y, w, h;
+      assert (sscanf (stream, "1 g\n%f %f %f %f re f\n/GS", &x, &y, &w, &h) == 4);
+      assert (x <= x0 && y <= y0 && x + w >= x1 && y + h >= y1);
+      stream = find (stream, end, " gs\n0 g\n");
+      assert (stream);
+      assert (sscanf (stream, " gs\n0 g\n%f %f %f %f re f\n", &x, &y, &w, &h) == 4);
+      assert (x <= x0 && y <= y0 && x + w >= x1 && y + h >= y1);
+    }
+    n++;
+  }
+  assert (n == strlen (which));
+}
+
+/* A group is written as a form, and what a form paints is clipped to
+ * the form's box: that holds what the group has painted, however far
+ * from the origin that is, in the space that the form is painted in. */
+static void
+test_form_bounds_pdf (void)
+{
+  static const struct { int mode; const char *root, *group, *open; } tests[] = {
+    /* The source, as it was painted and then, if a transform is open
+     * where it is composited, under that; the backdrop; and the group
+     * that the two are in, or the root if something in it blends. */
+    {HB_PAINT_COMPOSITE_MODE_SRC_OVER,  "s",     "su",    "s"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_OVER, "sb",    "sbu",   "sSB"},
+    {HB_PAINT_COMPOSITE_MODE_SRC_IN,    "sb",    "sbu",   "sSB"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_IN,   "sb",    "sbu",   "sSB"},
+    {HB_PAINT_COMPOSITE_MODE_SRC_ATOP,  "sb",    "sbu",   "sSB"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_ATOP, "sb",    "sbu",   "sSB"},
+    /* The inverse of a mask is a form too, over what is painted
+     * through it. */
+    {HB_PAINT_COMPOSITE_MODE_SRC_OUT,   "sbs",   "sbsu",  "sSBS"},
+    {HB_PAINT_COMPOSITE_MODE_DEST_OUT,  "sbb",   "sbbu",  "sSBB"},
+    {HB_PAINT_COMPOSITE_MODE_XOR,       "sbbsu", "sbbsu", "sSBBSU"},
+    {HB_PAINT_COMPOSITE_MODE_MULTIPLY,  "su",    "su",    "sU"},
+  };
+  for (unsigned i = 0; i < sizeof (tests) / sizeof (tests[0]); i++)
+  {
+    char *doc = render (HB_VECTOR_FORMAT_PDF, far_scene, tests[i].mode);
+    check_pdf (doc);
+    check_form_boxes (doc, tests[i].root);
+    free (doc);
+
+    doc = render (HB_VECTOR_FORMAT_PDF, far_group_scene, tests[i].mode);
+    check_pdf (doc);
+    check_form_boxes (doc, tests[i].group);
+    free (doc);
+
+    doc = render (HB_VECTOR_FORMAT_PDF, far_open_scene, tests[i].mode);
+    check_pdf (doc);
+    check_form_boxes (doc, tests[i].open);
+    free (doc);
+  }
+
+  /* What the box that every form has had holds, and what no clip
+   * bounds, are in that box, and so is the inverse of a mask that
+   * they are painted through. */
+  char *doc = render (HB_VECTOR_FORMAT_PDF, unbounded_scene, HB_PAINT_COMPOSITE_MODE_SRC_OUT);
+  check_pdf (doc);
+  assert (count (doc, "/BBox [") == 3);
+  assert (count (doc, "/BBox [-32767 -32767 32767 32767]\n") == 3);
+  assert (strstr (doc, "\nstream\n1 g\n-32767 -32767 65534 65534 re f\n/GS"));
+  free (doc);
+}
+
 static void
 empty_scene (hb_paint_funcs_t *funcs, void *paint, int arg)
 {
@@ -896,6 +997,7 @@ main (void)
   test_modes_pdf ();
   test_open_scopes_pdf ();
   test_root_pdf ();
+  test_form_bounds_pdf ();
   test_background_only ();
   test_unbalanced_pdf ();
   test_nested_pdf ();

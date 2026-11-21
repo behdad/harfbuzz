@@ -375,5 +375,50 @@ main (void)
 	  find_in (doc, doc_len, "/Coords [0 0 5 30 0 12.5]"));
   hb_blob_destroy (blob);
 
+  /* A group is a form, and what it paints is clipped to the form's
+   * box.  The periods fill what the clip lets through, so the box
+   * holds that, however far from the origin it is: here it is made
+   * bigger on the right. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_clip_rectangle (funcs, paint, 40000, 0, 40020, 10);
+  hb_paint_radial_gradient (funcs, paint, &color_line, 40010, 5, 0, 40010, 5, 4);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" Do\n") == 1);
+  assert (DOC_COUNT ("/BBox [") == 1);
+  assert (IN_DOC ("/BBox [-32767 -32767 40031 32767]\n"));
+  hb_blob_destroy (blob);
+
+  /* The group of the colors and the group of their alphas alike. */
+  begin (HB_PAINT_EXTEND_REPEAT, 128);
+  hb_paint_push_clip_rectangle (funcs, paint, 40000, 0, 40020, 10);
+  linear (40000, 40004);
+  hb_paint_pop_clip (funcs, paint);
+  end ();
+  assert (PAGE_COUNT (" Do\n") == 1);
+  assert (DOC_COUNT ("/BBox [") == 2);
+  assert (DOC_COUNT ("/BBox [-32767 -32767 40031 32767]\n") == 2);
+  hb_blob_destroy (blob);
+
+  /* The box is in the space that the group is painted in. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_push_transform (funcs, paint, 0.5f, 0, 0, 0.5f, 0, 0);
+  hb_paint_push_clip_rectangle (funcs, paint, 80000, 0, 80020, 10);
+  hb_paint_radial_gradient (funcs, paint, &color_line, 80010, 5, 0, 80010, 5, 4);
+  hb_paint_pop_clip (funcs, paint);
+  hb_paint_pop_transform (funcs, paint);
+  end ();
+  assert (DOC_COUNT ("/BBox [") == 1);
+  assert (IN_DOC ("/BBox [-32767 -32767 80031 32767]\n"));
+  hb_blob_destroy (blob);
+
+  /* With no clip to go by, it is the box that every form has had. */
+  begin (HB_PAINT_EXTEND_REPEAT, 255);
+  hb_paint_radial_gradient (funcs, paint, &color_line, 0, 0, 0, 0, 0, 10);
+  end ();
+  assert (DOC_COUNT ("/BBox [") == 1);
+  assert (IN_DOC ("/BBox [-32767 -32767 32767 32767]\n"));
+  hb_blob_destroy (blob);
+
   return 0;
 }
