@@ -557,7 +557,7 @@ hb_color_stops_cut (hb_color_stop_t *stops, unsigned *len,
   {
     /* The last stop that is not after @from starts it, likewise. */
     first = count - 2;
-    while (stops[first].offset > from)
+    while (first && stops[first].offset > from)
       first--;
     if (stops[first].offset < from)
     {
