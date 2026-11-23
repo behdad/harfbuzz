@@ -752,6 +752,47 @@ test_encode_rejects_nan_point (void)
   hb_gpu_draw_destroy (draw);
 }
 
+static void
+test_encode_non_finite_sum (void)
+{
+  /* The encoder tests the sum of a curve's coordinates for
+   * finiteness, not each coordinate.  Infinities of opposite sign
+   * sum to NaN and must still be rejected.  The largest floats sum
+   * to a finite double and must not be: their outline fails to
+   * encode for being out of range, with its extents saturated as in
+   * test_extents_saturate_overflow, where a rejected point would
+   * leave them zero. */
+  hb_gpu_draw_t *draw = hb_gpu_draw_create_or_fail ();
+  g_assert_nonnull (draw);
+
+  hb_draw_funcs_t *funcs = hb_gpu_draw_get_funcs (draw);
+  hb_draw_state_t st = HB_DRAW_STATE_DEFAULT;
+  hb_glyph_extents_t ext;
+
+  hb_draw_move_to (funcs, draw, &st, 0.f, 0.f);
+  hb_draw_line_to (funcs, draw, &st, INFINITY, -INFINITY);
+  hb_draw_line_to (funcs, draw, &st, 1.f, 1.f);
+  hb_draw_close_path (funcs, draw, &st);
+
+  g_assert_null (hb_gpu_draw_encode (draw, &ext));
+  g_assert_cmpint (ext.width, ==, 0);
+  g_assert_cmpint (ext.height, ==, 0);
+
+  st = HB_DRAW_STATE_DEFAULT;
+  hb_draw_move_to (funcs, draw, &st, G_MAXFLOAT, G_MAXFLOAT);
+  hb_draw_line_to (funcs, draw, &st, 0.f, G_MAXFLOAT);
+  hb_draw_line_to (funcs, draw, &st, G_MAXFLOAT, 0.f);
+  hb_draw_close_path (funcs, draw, &st);
+
+  g_assert_null (hb_gpu_draw_encode (draw, &ext));
+  g_assert_cmpint (ext.x_bearing, ==, 0);
+  g_assert_cmpint (ext.y_bearing, ==, G_MAXINT32);
+  g_assert_cmpint (ext.width, ==, G_MAXINT32);
+  g_assert_cmpint (ext.height, ==, G_MININT32);
+
+  hb_gpu_draw_destroy (draw);
+}
+
 /* ===== Paint encoder tests ===== */
 
 static void
@@ -1461,6 +1502,7 @@ main (int argc, char **argv)
   hb_test_add (test_encode_band_membership);
   hb_test_add (test_extents_saturate_overflow);
   hb_test_add (test_encode_rejects_nan_point);
+  hb_test_add (test_encode_non_finite_sum);
   hb_test_add (test_shapes);
 
   hb_test_add (test_paint_create_destroy);

@@ -64,10 +64,13 @@ acc_emit (hb_gpu_draw_t *g,
   /* hb_gpu_draw_encode() bounds every point by the extents before
    * quantizing to int16, but a NaN point (an overflowed transform
    * gives inf - inf) does not show in the extents.  Infinite points
-   * fail that check anyway. */
-  if (unlikely (!std::isfinite (p1x) || !std::isfinite (p1y) ||
-		!std::isfinite (p2x) || !std::isfinite (p2y) ||
-		!std::isfinite (p3x) || !std::isfinite (p3y)))
+   * fail that check anyway.
+   *
+   * The sum is not finite if any coordinate is not, which makes this
+   * one test instead of six.  Finite coordinates could only make it
+   * infinite by overflowing double, and a point that far out fails
+   * to encode anyway. */
+  if (unlikely (!std::isfinite ((p1x + p1y) + (p2x + p2y) + (p3x + p3y))))
   {
     g->success = false;
     return;
