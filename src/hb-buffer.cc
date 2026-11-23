@@ -2447,7 +2447,7 @@ hb_buffer_t::message_impl (hb_font_t *font, const char *fmt, va_list ap)
 
   message_depth++;
 
-  char buf[100];
+  char buf[1024];
   vsnprintf (buf, sizeof (buf), fmt, ap);
   bool ret = (bool) this->message_func (this, font, buf, this->message_data);
 
