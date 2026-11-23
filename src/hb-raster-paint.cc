@@ -1128,7 +1128,7 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
       if (!(u >= -margin_u && v >= -margin_v &&
 	    u <= (float) src_width + margin_u && v <= (float) src_height + margin_v))
 	return false;
-      grid_samples += nx * ny;
+      grid_samples += (int64_t) nx * ny;
     }
 
     float b = 0.f, g = 0.f, r = 0.f, a = 0.f;
@@ -1198,9 +1198,9 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
   {
     if (!grid_samples)
       return true;
-    c->charge_work (grid_samples);
+    bool charged = c->charge_work (grid_samples);
     grid_samples = 0;
-    return c->pixel_remaining >= 0;
+    return charged && c->pixel_remaining >= 0;
   };
 
   if (clip.is_rect)
