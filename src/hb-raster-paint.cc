@@ -1128,7 +1128,7 @@ hb_raster_paint_image (hb_paint_funcs_t *pfuncs HB_UNUSED,
       if (!(u >= -margin_u && v >= -margin_v &&
 	    u <= (float) src_width + margin_u && v <= (float) src_height + margin_v))
 	return false;
-      grid_samples += nx * ny;
+      grid_samples += (int64_t) nx * ny;
     }
 
     float b = 0.f, g = 0.f, r = 0.f, a = 0.f;
