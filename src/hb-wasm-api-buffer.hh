@@ -160,6 +160,10 @@ HB_WASM_API (bool_t, buffer_set_contents) (HB_WASM_EXEC_ENV
   if (unlikely (!contents))
     return false;
 
+  /* A bad handle resolves to the empty buffer, which is not ours to write. */
+  if (unlikely (hb_object_is_immutable (buffer)))
+    return false;
+
   unsigned length = contents->length;
   unsigned bytes;
   if (unlikely (hb_unsigned_mul_overflows (length, sizeof (buffer->info[0]), &bytes)))

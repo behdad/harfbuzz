@@ -55,6 +55,10 @@ HB_WASM_INTERFACE (bool_t, shape_with) (HB_WASM_EXEC_ENV
 
   /* Pre-conditions that make hb_shape_full() crash should be checked here. */
 
+  /* A bad handle resolves to the empty buffer, which is not ours to write. */
+  if (unlikely (hb_object_is_immutable (buffer)))
+    return false;
+
   if (unlikely (!buffer->ensure_unicode ()))
     return false;
 
