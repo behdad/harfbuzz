@@ -247,6 +247,12 @@ endif
 if wasm_dep.found()
   conf.set('HAVE_WASM', 1)
   conf.set('HB_WASM_MODULE_DIR', '"'+get_option('prefix')+'/'+get_option('libdir')+'/harfbuzz/wasm"')
+  # Only in a runtime built with -DWAMR_BUILD_INSTRUCTION_METERING=1.
+  if cpp.has_function('wasm_runtime_set_instruction_count_limit',
+                      prefix: '#include <wasm_export.h>',
+                      dependencies: wasm_dep)
+    conf.set('HAVE_WASM_RUNTIME_SET_INSTRUCTION_COUNT_LIMIT', 1)
+  endif
 endif
 
 if graphite2_dep.found() or graphite_dep.found()

@@ -43,6 +43,15 @@ HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
   if (unlikely (!data))
     return nullref;
 
+  /* The face keeps a copy of the data, outside the module's own memory.
+   * Count it against the memory the module may use. */
+  auto *plan = HB_WASM_PLAN;
+  if (unlikely (!plan ||
+		plan->face_bytes > plan->max_memory ||
+		blob->length > plan->max_memory - plan->face_bytes))
+    return nullref;
+  plan->face_bytes += blob->length;
+
   hb_blob_t *hb_blob = hb_blob_create(
 				      data,
 				      blob->length,

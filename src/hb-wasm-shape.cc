@@ -33,7 +33,7 @@
 
 /* Compile wasm-micro-runtime with:
  *
- * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_FAST_JIT=1
+ * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_INSTRUCTION_METERING=1
  * $ make
  *
  * If you manage to build a wasm shared module successfully and want to use it,
@@ -58,6 +58,10 @@
 
 #include "hb-wasm-api.hh"
 #include "hb-wasm-api-list.hh"
+
+#if !defined(HB_NO_WASM_BUDGET) && !defined(HAVE_WASM_RUNTIME_SET_INSTRUCTION_COUNT_LIMIT)
+#error "The Wasm shaper needs a wasm-micro-runtime built with -DWAMR_BUILD_INSTRUCTION_METERING=1, to limit what a font's module can run.  Define HB_NO_WASM_BUDGET to build without limits, for trusted fonts only."
+#endif
 
 #ifndef HB_WASM_NO_MODULES
 #define HB_WASM_NO_MODULES
@@ -107,6 +111,11 @@ _hb_wasm_module_destroyer (uint8_t *buffer, uint32_t size)
 struct hb_wasm_face_data_t {
   hb_blob_t *wasm_blob;
   wasm_module_t wasm_module;
+  /* The maximum the module declares for its memory, in pages. */
+  uint32_t module_max_pages;
+  /* The part of an instance's memory allowance that does not depend on
+   * the buffer, in bytes. */
+  uint64_t max_memory_base;
   mutable hb_atomic_t<hb_wasm_shape_plan_t *> plan;
 };
 
@@ -189,20 +198,63 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
   data->wasm_blob = wasm_blob.release ();
   data->wasm_module = wasm_module;
 
+  /* The runtime complains, each time, when told to hold a module to more
+   * than the module's own maximum.  Modules export their memory, so look
+   * that maximum up. */
+  data->module_max_pages = 65536;
+  for (int32_t i = 0; i < wasm_runtime_get_export_count (wasm_module); i++)
+  {
+    wasm_export_t export_type;
+    wasm_runtime_get_export_type (wasm_module, i, &export_type);
+    if (export_type.kind == WASM_IMPORT_EXPORT_KIND_MEMORY)
+      data->module_max_pages = wasm_memory_type_get_max_page_count (export_type.u.memory_type);
+  }
+
+  hb_unique_ptr_t<hb_blob_t> face_blob (hb_face_reference_blob (face));
+  data->max_memory_base = HB_WASM_MAX_MEMORY_MIN +
+			  (uint64_t) HB_WASM_MAX_MEMORY_FACE_FACTOR * hb_blob_get_length (face_blob);
+
   module_guard.release ();
   return data;
 }
 
+/* Sets how many instructions the next call into the module may run,
+ * for a buffer of the given length. */
+static void
+limit_instructions (wasm_exec_env_t exec_env HB_UNUSED,
+		    unsigned buffer_len HB_UNUSED)
+{
+#ifndef HB_NO_WASM_BUDGET
+  uint64_t limit = (uint64_t) HB_WASM_MAX_INSTRUCTIONS_MIN +
+		   (uint64_t) HB_WASM_MAX_INSTRUCTIONS_FACTOR * buffer_len;
+  wasm_runtime_set_instruction_count_limit (exec_env,
+					    (int) hb_min (limit, (uint64_t) INT_MAX));
+#endif
+}
+
+static void
+release_shape_plan (const hb_wasm_face_data_t *face_data,
+		    hb_wasm_shape_plan_t *plan,
+		    bool cache = false);
+
 static hb_wasm_shape_plan_t *
 acquire_shape_plan (hb_face_t *face,
-		    const hb_wasm_face_data_t *face_data)
+		    const hb_wasm_face_data_t *face_data,
+		    unsigned buffer_len)
 {
   char error[128];
 
   /* Fetch cached one if available. */
   hb_wasm_shape_plan_t *plan = face_data->plan.get_acquire ();
   if (likely (plan && face_data->plan.cmpexch (plan, nullptr)))
-    return plan;
+  {
+    if (likely (buffer_len <= plan->max_buffer_len))
+      return plan;
+
+    /* How much memory an instance may use is fixed when it is created,
+     * and this one was created for shorter buffers. */
+    release_shape_plan (face_data, plan);
+  }
 
   plan = (hb_wasm_shape_plan_t *) hb_calloc (1, sizeof (hb_wasm_shape_plan_t));
   if (unlikely (!plan))
@@ -215,14 +267,57 @@ acquire_shape_plan (hb_face_t *face,
 
   constexpr uint32_t stack_size = 32 * 1024, heap_size = 2 * 1024 * 1024;
 
-  wasm_module_inst_t module_inst = plan->module_inst = wasm_runtime_instantiate (
-      face_data->wasm_module, stack_size, heap_size, error, sizeof (error));
+  InstantiationArgs args;
+  hb_memset (&args, 0, sizeof (args));
+  args.default_stack_size = stack_size;
+  args.host_managed_heap_size = heap_size;
+
+#ifndef HB_NO_WASM_BUDGET
+  /* Leave room for buffers longer than this one, so that the instance
+   * can be kept for them. */
+  plan->max_buffer_len = 1024;
+  while (plan->max_buffer_len < buffer_len)
+    plan->max_buffer_len *= 2;
+  plan->max_memory = face_data->max_memory_base +
+		     (uint64_t) HB_WASM_MAX_MEMORY_BUFFER_FACTOR *
+		     (sizeof (hb_glyph_info_t) + sizeof (hb_glyph_position_t)) *
+		     plan->max_buffer_len;
+  uint32_t max_pages = (uint32_t) hb_min ((plan->max_memory + 65535) / 65536, (uint64_t) 65536);
+  /* Zero leaves the module its own maximum. */
+  args.max_memory_pages = face_data->module_max_pages <= max_pages ? 0 : max_pages;
+#else
+  plan->max_buffer_len = (unsigned) -1;
+  plan->max_memory = (uint64_t) -1;
+#endif
+
+  wasm_module_inst_t module_inst = plan->module_inst = wasm_runtime_instantiate_ex (
+      face_data->wasm_module, &args, error, sizeof (error));
   if (unlikely (!module_inst))
   {
     DEBUG_MSG (WASM, face_data, "Create wasm module instance failed: %s", error);
     return nullptr;
   }
   auto module_guard = hb_make_scope_guard ([&]() { wasm_runtime_deinstantiate (module_inst); });
+
+#ifndef HB_NO_WASM_BUDGET
+  /* The runtime holds a module to the limit as it grows, but not below
+   * the memory it starts with.  The heap we asked for comes on top of
+   * the module's own pages, rounded up to one more. */
+  uint64_t memory_start, memory_end;
+  if (unlikely (!wasm_runtime_get_app_addr_range (module_inst, 0, &memory_start, &memory_end) ||
+		memory_end > (uint64_t) max_pages * 65536 + heap_size + 65536))
+  {
+    DEBUG_MSG (WASM, face_data, "Wasm module starts with too much memory.");
+    return nullptr;
+  }
+
+  /* Instructions are only counted in the interpreter. */
+  if (unlikely (!wasm_runtime_set_running_mode (module_inst, Mode_Interp)))
+  {
+    DEBUG_MSG (WASM, face_data, "The runtime has no interpreter to count instructions in.");
+    return nullptr;
+  }
+#endif
 
   wasm_runtime_set_custom_data (module_inst, plan);
 
@@ -250,6 +345,7 @@ acquire_shape_plan (hb_face_t *face,
     results[0].kind = WASM_I32;
     arguments[0].kind = WASM_I32;
     arguments[0].of.i32 = faceref;
+    limit_instructions (exec_env, 0);
     bool ret = wasm_runtime_call_wasm_a (exec_env, func,
 					 ARRAY_LENGTH (results), results,
 					 ARRAY_LENGTH (arguments), arguments);
@@ -272,7 +368,7 @@ acquire_shape_plan (hb_face_t *face,
 static void
 release_shape_plan (const hb_wasm_face_data_t *face_data,
 		    hb_wasm_shape_plan_t *plan,
-		    bool cache = false)
+		    bool cache)
 {
   /* The faces and fonts a module creates and does not destroy live as
    * long as its instance.  Kept on the face, an instance that owns any
@@ -302,6 +398,7 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
 
       arguments[0].kind = WASM_I32;
       arguments[0].of.i32 = plan->wasm_shape_planptr;
+      limit_instructions (exec_env, 0);
       bool ret = wasm_runtime_call_wasm_a (exec_env, func,
 					   0, nullptr,
 					   ARRAY_LENGTH (arguments), arguments);
@@ -377,7 +474,7 @@ retry:
 
   wasm_function_inst_t func = nullptr;
 
-  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data);
+  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data, buffer->len);
   if (unlikely (!plan))
   {
     DEBUG_MSG (WASM, face_data, "Acquiring shape-plan failed.");
@@ -387,6 +484,11 @@ retry:
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
   unsigned num_refs = plan->refs.length;
+
+  /* What the faces a module creates hold counts against its memory, from
+   * when it last owned nothing. */
+  if (!plan->num_owned)
+    plan->face_bytes = 0;
 
   HB_OBJ2REF (font);
   HB_OBJ2REF (buffer);
@@ -423,6 +525,7 @@ retry:
   arguments[4].kind = WASM_I32;
   arguments[4].of.i32 = num_features;
 
+  limit_instructions (exec_env, buffer->len);
   ret = wasm_runtime_call_wasm_a (exec_env, func,
 				  ARRAY_LENGTH (results), results,
 				  ARRAY_LENGTH (arguments), arguments);
@@ -439,6 +542,14 @@ retry:
       DEBUG_MSG (WASM, font, "Shape failed but buffer is not in Unicode; failing...");
       goto fail;
     }
+#ifndef HB_NO_WASM_BUDGET
+    /* A module that ran out of instructions would do so again.  This is
+     * the runtime's message; if it ever changes, we retry needlessly. */
+    const char *exception;
+    exception = wasm_runtime_get_exception (module_inst);
+    if (exception && strstr (exception, "instruction limit exceeded"))
+      goto fail;
+#endif
     if (retried)
     {
       DEBUG_MSG (WASM, font, "Giving up...");

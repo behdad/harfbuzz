@@ -173,6 +173,13 @@ struct hb_wasm_shape_plan_t
   /* How many faces and fonts the instance owns: those that its module
    * created and has not destroyed. */
   unsigned num_owned;
+
+  /* The memory the instance may use, in bytes; the buffer length that
+   * was sized for; and how much of it went into faces the module
+   * created. */
+  uint64_t max_memory;
+  unsigned max_buffer_len;
+  uint64_t face_bytes;
 };
 
 /* The plan of the instance a host function was called from.  There is
