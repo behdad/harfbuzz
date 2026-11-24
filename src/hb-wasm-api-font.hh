@@ -169,6 +169,9 @@ HB_WASM_API (bool_t, font_copy_glyph_outline) (HB_WASM_EXEC_ENV
     return true;
   }
 
+  module_free (outline->points);
+  module_free (outline->contours);
+
   outline->n_points = hb_outline.points.length;
   outline->points = wasm_runtime_module_dup_data (module_inst,
 						  (const char *) hb_outline.points.arrayZ,
