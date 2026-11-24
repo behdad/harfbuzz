@@ -33,10 +33,6 @@ namespace hb {
 namespace wasm {
 
 
-static void
-_hb_wasm_font_destroy (void *font)
-{ hb_font_destroy ((hb_font_t *) font); }
-
 HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 					  ptr_d(face_t, face))
 {
@@ -44,18 +40,18 @@ HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 
   hb_font_t *font = hb_font_create (face);
 
-  HB_OBJ2REF (font);
-  if (unlikely (!fontref))
-  {
-    hb_font_destroy (font);
-    return nullref;
-  }
-
   /* The instance owns the font, and destroys it when it goes. */
-  wasm_externref_set_cleanup (module_inst, font, _hb_wasm_font_destroy);
-  ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))->owns_objects = true;
+  HB_OBJ2REF_OWNED (font);
+  if (unlikely (!fontref))
+    hb_font_destroy (font);
 
   return fontref;
+}
+
+HB_WASM_API (void, font_destroy) (HB_WASM_EXEC_ENV
+				  ptr_d(font_t, font))
+{
+  HB_WASM_PLAN->destroy_ref (fontptr, hb_wasm_ref_type_font);
 }
 
 HB_WASM_API (ptr_t(face_t), font_get_face) (HB_WASM_EXEC_ENV
@@ -65,7 +61,24 @@ HB_WASM_API (ptr_t(face_t), font_get_face) (HB_WASM_EXEC_ENV
 
   hb_face_t *face = hb_font_get_face (font);
 
-  HB_OBJ2REF (face);
+  /* The face we are shaping with, or one the module created and still
+   * has a handle to. */
+  auto *plan = HB_WASM_PLAN;
+  uint32_t faceref = plan->find_ref (face, hb_wasm_ref_type_face);
+  if (faceref)
+    return faceref;
+
+  /* The font was not one of ours. */
+  if (face == hb_face_get_empty ())
+    return nullref;
+
+  /* The module destroyed its handle to the face of a font it still has.
+   * The font can be destroyed next, so the new handle holds the face. */
+  hb_face_reference (face);
+  faceref = plan->obj2ref (face, hb_wasm_ref_type_face, true);
+  if (unlikely (!faceref))
+    hb_face_destroy (face);
+
   return faceref;
 }
 

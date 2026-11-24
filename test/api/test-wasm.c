@@ -196,6 +196,108 @@ test_wasm_created_objects (void)
   g_assert_cmpint (face_destroyed, ==, 1);
 }
 
+static void
+test_wasm_handles_belong_to_the_instance (void)
+{
+  hb_font_t *font1 = open_font ();
+  hb_font_t *font2 = open_font ();
+  hb_buffer_t *buffer1, *buffer2, *buffer3;
+
+  /* Two faces, so two instances of the module.  Each numbers its
+   * handles by itself, so both see the same numbers, which name
+   * different objects. */
+  buffer1 = shape_text (font1, "d");
+  buffer2 = shape_text (font2, "d");
+  g_assert_cmpuint (hb_buffer_get_length (buffer1), ==, 4);
+  for (unsigned i = 0; i < 4; i++)
+  {
+    g_assert_cmpuint (value (buffer1, i), !=, 0);
+    g_assert_cmpuint (value (buffer1, i), ==, value (buffer2, i));
+  }
+
+  /* The face keeps its handle from shape_plan_create() on... */
+  g_assert_cmpuint (value (buffer1, 0), ==, value (buffer1, 1));
+  buffer3 = shape_text (font1, "d");
+  g_assert_cmpuint (value (buffer3, 0), ==, value (buffer1, 0));
+  /* ...while the font and the buffer get new ones in every call. */
+  g_assert_cmpuint (value (buffer3, 2), !=, value (buffer1, 2));
+  g_assert_cmpuint (value (buffer3, 3), !=, value (buffer1, 3));
+  g_assert_cmpuint (value (buffer3, 2), !=, value (buffer1, 3));
+
+  hb_buffer_destroy (buffer1);
+  hb_buffer_destroy (buffer2);
+  hb_buffer_destroy (buffer3);
+  hb_font_destroy (font1);
+  hb_font_destroy (font2);
+}
+
+static void
+test_wasm_handle_limit (void)
+{
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = shape_text (font, "e");
+
+  /* The module asked for a thousand fonts.  It got some, was refused
+   * the rest, and the ones it got work. */
+  g_assert_cmpuint (value (buffer, 0), >=, 16);
+  g_assert_cmpuint (value (buffer, 0), <, 1000);
+  g_assert_cmpuint (value (buffer, 1), ==, hb_face_get_upem (hb_font_get_face (font)));
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+}
+
+static void
+test_wasm_destroy (void)
+{
+  hb_font_t *font = open_font ();
+  hb_codepoint_t a = 0;
+  unsigned upem = hb_face_get_upem (hb_font_get_face (font));
+  unsigned empty_upem = hb_face_get_upem (hb_face_get_empty ());
+
+  g_assert_true (hb_font_get_nominal_glyph (font, 'a', &a));
+  g_assert_cmpuint (upem, !=, empty_upem);
+
+  for (unsigned call = 1; call <= 3; call++)
+  {
+    hb_buffer_t *buffer = shape_text (font, "f");
+    g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 8);
+
+    /* The module destroyed all it created, so its instance is kept:
+     * it has counted every call so far. */
+    g_assert_cmpuint (value (buffer, 0), ==, call);
+
+    /* Its font worked, and the handle named nothing once destroyed. */
+    g_assert_cmpuint (value (buffer, 1), ==, a);
+    g_assert_cmpuint (value (buffer, 2), ==, 0);
+
+    /* So for its face.  The font on that face still had it, under a
+     * new handle, and kept it alive until that handle went too. */
+    g_assert_cmpuint (value (buffer, 3), ==, empty_upem);
+    g_assert_cmpuint (value (buffer, 4), ==, 1);
+    g_assert_cmpuint (value (buffer, 5), !=, 0);
+
+    /* What it was given is not its to destroy. */
+    g_assert_cmpuint (value (buffer, 6), ==, a);
+    g_assert_cmpuint (value (buffer, 7), ==, upem);
+
+    hb_buffer_destroy (buffer);
+  }
+
+  hb_font_destroy (font);
+
+  /* A module that keeps a font gets a new instance for each call. */
+  font = open_font ();
+  for (unsigned call = 1; call <= 3; call++)
+  {
+    hb_buffer_t *buffer = shape_text (font, "g");
+    g_assert_cmpuint (value (buffer, 0), ==, 1);
+    g_assert_cmpuint (value (buffer, 1), ==, 1);
+    hb_buffer_destroy (buffer);
+  }
+  hb_font_destroy (font);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -204,6 +306,9 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_copy_lengths);
   hb_test_add (test_wasm_handles_end_with_the_call);
   hb_test_add (test_wasm_created_objects);
+  hb_test_add (test_wasm_handles_belong_to_the_instance);
+  hb_test_add (test_wasm_handle_limit);
+  hb_test_add (test_wasm_destroy);
 
   return hb_test_run ();
 }

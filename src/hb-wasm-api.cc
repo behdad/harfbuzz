@@ -41,6 +41,4 @@
 
 #undef module_inst
 
-hb_user_data_key_t _hb_wasm_ref_type_key = {};
-
 #endif

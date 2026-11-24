@@ -51,8 +51,8 @@ jobs:
           help2man
     - name: Install wasm-micro-runtime
       run: |
-        # WAMR-2.4.6.  The Wasm shaper needs reference types.  With SIMD
-        # the configure step downloads another library.
+        # WAMR-2.4.6.  With SIMD the configure step downloads another
+        # library.
         git init -q "$RUNNER_TEMP/wamr"
         git -C "$RUNNER_TEMP/wamr" fetch -q --depth=1 \
           https://github.com/bytecodealliance/wasm-micro-runtime \
@@ -61,7 +61,6 @@ jobs:
         cmake -S "$RUNNER_TEMP/wamr" -B "$RUNNER_TEMP/wamr/build" \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=ON \
-          -DWAMR_BUILD_REF_TYPES=1 \
           -DWAMR_BUILD_SIMD=0
         cmake --build "$RUNNER_TEMP/wamr/build" --parallel
         sudo cmake --install "$RUNNER_TEMP/wamr/build"

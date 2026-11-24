@@ -20,6 +20,26 @@ static uint32_t contours[16];
 /* The buffer of the previous call. */
 static buffer_t *last_buffer;
 
+/* How many times this instance has been asked to shape. */
+static unsigned calls;
+
+/* The face, as shape_plan_create() got it. */
+static face_t *plan_face;
+
+void *
+shape_plan_create (face_t *face)
+{
+  plan_face = face;
+  return (void *) 1;
+}
+
+extern "C" __attribute__((export_name("shape_plan_destroy"))) void
+shape_plan_destroy (void *shape_plan)
+{
+  /* This can run while the face is being destroyed. */
+  font_create (plan_face);
+}
+
 static bool_t
 answer (buffer_t *buffer, const uint32_t *values, unsigned count)
 {
@@ -46,6 +66,7 @@ shape (void *shape_plan,
 {
   buffer_t *previous = last_buffer;
   last_buffer = buffer;
+  calls++;
 
   uint32_t values[8];
 
@@ -103,6 +124,69 @@ shape (void *shape_plan,
       values[2] = third != 0;
       return answer (buffer, values, 3);
     }
+
+    case 'd':
+      /* The handles themselves. */
+      values[0] = (uint32_t) (uintptr_t) font_get_face (font);
+      values[1] = (uint32_t) (uintptr_t) plan_face;
+      values[2] = (uint32_t) (uintptr_t) font;
+      values[3] = (uint32_t) (uintptr_t) buffer;
+      return answer (buffer, values, 4);
+
+    case 'e':
+    {
+      /* More fonts than an instance may hold. */
+      font_t *last = 0;
+      values[0] = 0;
+      for (unsigned i = 0; i < 1000; i++)
+      {
+	font_t *created = font_create (font_get_face (font));
+	if (!created)
+	  continue;
+	values[0]++;
+	last = created;
+      }
+      values[1] = face_get_upem (font_get_face (last));
+      return answer (buffer, values, 2);
+    }
+
+    case 'f':
+    {
+      /* A font and a face of our own, destroyed before we return. */
+      font_t *created = font_create (font_get_face (font));
+      values[0] = calls;
+      values[1] = font_get_glyph (created, 'a', 0);
+      font_destroy (created);
+      values[2] = font_get_glyph (created, 'a', 0);
+
+      /* A face can go before a font that uses it; the font then gives
+       * a new handle for it, which is ours to destroy as well. */
+      blob_t blob = {sizeof (table), table};
+      face_t *face = face_create (&blob, 0);
+      font_t *on_it = font_create (face);
+      face_destroy (face);
+      values[3] = face_get_upem (face);
+      face_t *again = font_get_face (on_it);
+      values[4] = again != 0 && again != face && again == font_get_face (on_it);
+      font_destroy (on_it);
+      values[5] = face_get_upem (again);
+      face_destroy (again);
+
+      /* None of these is ours to destroy. */
+      font_destroy (font);
+      face_destroy (font_get_face (font));
+      font_destroy ((font_t *) buffer);
+      face_destroy ((face_t *) 0x7ffffff0);
+      values[6] = font_get_glyph (font, 'a', 0);
+      values[7] = face_get_upem (font_get_face (font));
+      return answer (buffer, values, 8);
+    }
+
+    case 'g':
+      /* A font of our own that we keep. */
+      values[0] = calls;
+      values[1] = font_create (font_get_face (font)) != 0;
+      return answer (buffer, values, 2);
   }
 
   return false;

@@ -189,12 +189,18 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
 HB_WASM_API (unsigned, face_get_upem) (HB_WASM_EXEC_ENV
 				       ptr_d(face_t, face));
 
+HB_WASM_API (void, face_destroy) (HB_WASM_EXEC_ENV
+				  ptr_d(face_t, face));
+
 /* font */
 
 typedef struct font_t font_t;
 
 HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 					  ptr_d(face_t, face));
+
+HB_WASM_API (void, font_destroy) (HB_WASM_EXEC_ENV
+				  ptr_d(font_t, font));
 
 HB_WASM_API (ptr_t(face_t), font_get_face) (HB_WASM_EXEC_ENV
 					    ptr_d(font_t, font));

@@ -18,6 +18,8 @@ The WASM code inside a font is expected to export a function called `shape` whic
 * A *feature* array.
 * The number of features.
 
+Tokens are numbers that only mean something to the module instance they were given to. A font or buffer token is good for the `shape` call it was passed to, and names nothing after that call returns. The face token is good for as long as the instance lives. Faces and fonts that the module creates itself are the module's to destroy, with `face_destroy` and `font_destroy`. Those it still has when `shape` returns are destroyed together with the instance, which is then not used for another `shape` call.
+
 The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
 
 * The `buffer_contents_t` structure
@@ -174,6 +176,14 @@ uint32 font_create(uint32 face_token)
 
 Returns a new *font token* from the given *face token*.
 
+* `font_destroy`
+
+```C
+void font_destroy(uint32 font_token)
+```
+
+Destroys a font that the module created with `font_create`. The token names nothing afterwards. Any other token is ignored, including that of the font passed to `shape`.
+
 * `font_get_face`
 
 ```C
@@ -324,6 +334,14 @@ uint32 font_get_upem(uint32 face_token)
 
 Returns the units-per-em of the font face.
 
+* `face_destroy`
+
+```C
+void face_destroy(uint32 face_token)
+```
+
+Destroys a face that the module created with `face_create`. The token names nothing afterwards. A font created from the face keeps working, and `font_get_face` on it returns a new token for the face, which is again the module's to destroy. Any other token is ignored, including that of the face being shaped.
+
 ### Other functions
 
 * `blob_free`
@@ -370,12 +388,12 @@ Produces a debugging message in the host shaper's log output; the variants `debu
 
 ## Enabling the WASM shaper when building Harfbuzz
 
-First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory and add the `-DWAMR_BUILD_REF_TYPES=1` flag to the `cmake` line. (You may want to enable "fast JIT".) Then, install it.
+First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory. (You may want to enable "fast JIT".) Then, install it.
 
 So, for example:
 
 ```
-$ cmake -B build -DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1
+$ cmake -B build -DWAMR_BUILD_FAST_JIT=1
 $ cmake --build build --parallel
 $ sudo cmake --build build --target install
 ```
