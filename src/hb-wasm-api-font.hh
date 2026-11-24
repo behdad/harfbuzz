@@ -33,6 +33,10 @@ namespace hb {
 namespace wasm {
 
 
+static void
+_hb_wasm_font_destroy (void *font)
+{ hb_font_destroy ((hb_font_t *) font); }
+
 HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 					  ptr_d(face_t, face))
 {
@@ -41,6 +45,16 @@ HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
   hb_font_t *font = hb_font_create (face);
 
   HB_OBJ2REF (font);
+  if (unlikely (!fontref))
+  {
+    hb_font_destroy (font);
+    return nullref;
+  }
+
+  /* The instance owns the font, and destroys it when it goes. */
+  wasm_externref_set_cleanup (module_inst, font, _hb_wasm_font_destroy);
+  ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))->owns_objects = true;
+
   return fontref;
 }
 
@@ -165,9 +179,14 @@ HB_WASM_API (bool_t, font_copy_glyph_outline) (HB_WASM_EXEC_ENV
 
     hb_memcpy (points, hb_outline.points.arrayZ, hb_outline.points.get_size ());
     hb_memcpy (contours, hb_outline.contours.arrayZ, hb_outline.contours.get_size ());
+    outline->n_points = hb_outline.points.length;
+    outline->n_contours = hb_outline.contours.length;
 
     return true;
   }
+
+  module_free (outline->points);
+  module_free (outline->contours);
 
   outline->n_points = hb_outline.points.length;
   outline->points = wasm_runtime_module_dup_data (module_inst,
@@ -224,6 +243,7 @@ HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
     }
 		unsigned bytes = our_length * sizeof (int);
     hb_memcpy (their_coords, our_coords, bytes);
+    coords->length = our_length;
 
     return true;
   }

@@ -129,6 +129,7 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
     unsigned bytes = length * sizeof (hb_glyph_info_t);
     hb_memcpy (info, buffer->info, bytes);
     hb_memcpy (pos, buffer->pos, bytes);
+    contents->length = length;
 
     return true;
   }
@@ -157,6 +158,10 @@ HB_WASM_API (bool_t, buffer_set_contents) (HB_WASM_EXEC_ENV
   HB_REF2OBJ (buffer);
   HB_PTR_PARAM (buffer_contents_t, contents);
   if (unlikely (!contents))
+    return false;
+
+  /* A bad handle resolves to the empty buffer, which is not ours to write. */
+  if (unlikely (hb_object_is_immutable (buffer)))
     return false;
 
   unsigned length = contents->length;

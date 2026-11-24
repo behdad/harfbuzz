@@ -49,6 +49,23 @@ jobs:
           pkg-config \
           zlib1g-dev \
           help2man
+    - name: Install wasm-micro-runtime
+      run: |
+        # WAMR-2.4.6.  The Wasm shaper needs reference types.  With SIMD
+        # the configure step downloads another library.
+        git init -q "$RUNNER_TEMP/wamr"
+        git -C "$RUNNER_TEMP/wamr" fetch -q --depth=1 \
+          https://github.com/bytecodealliance/wasm-micro-runtime \
+          0fa421193212b3fb45c7f59ec53662cc2851fcc7
+        git -C "$RUNNER_TEMP/wamr" checkout -q FETCH_HEAD
+        cmake -S "$RUNNER_TEMP/wamr" -B "$RUNNER_TEMP/wamr/build" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=ON \
+          -DWAMR_BUILD_REF_TYPES=1 \
+          -DWAMR_BUILD_SIMD=0
+        cmake --build "$RUNNER_TEMP/wamr/build" --parallel
+        sudo cmake --install "$RUNNER_TEMP/wamr/build"
+        sudo ldconfig
     - name: Setup Python
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
@@ -62,6 +79,7 @@ jobs:
           -Dauto_features=enabled \
           -Dgraphite=enabled \
           -Dkbts=enabled \
+          -Dwasm=enabled \
           -Doptimization=2 \
           -Ddocs=disabled \
           -Dragel_subproject=true

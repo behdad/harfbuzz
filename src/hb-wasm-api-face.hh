@@ -31,6 +31,10 @@ namespace hb {
 namespace wasm {
 
 
+static void
+_hb_wasm_face_destroy (void *face)
+{ hb_face_destroy ((hb_face_t *) face); }
+
 HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
 					  ptr_d(blob_t, blob),
 					  unsigned int index)
@@ -54,6 +58,16 @@ HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
   hb_blob_destroy (hb_blob);
 
   HB_OBJ2REF (face);
+  if (unlikely (!faceref))
+  {
+    hb_face_destroy (face);
+    return nullref;
+  }
+
+  /* The instance owns the face, and destroys it when it goes. */
+  wasm_externref_set_cleanup (module_inst, face, _hb_wasm_face_destroy);
+  ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))->owns_objects = true;
+
   return faceref;
 }
 
@@ -67,7 +81,7 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
   if (unlikely (!blob))
     return false;
 
-  hb_blob_t *hb_blob = hb_face_reference_table (face, table_tag);
+  hb_unique_ptr_t<hb_blob_t> hb_blob (hb_face_reference_table (face, table_tag));
 
   unsigned length;
   const char *hb_data = hb_blob_get_data (hb_blob, &length);
@@ -83,6 +97,7 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
     }
 
     hb_memcpy (data, hb_data, length);
+    blob->length = length;
 
     return true;
   }
@@ -91,8 +106,6 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
 
   blob->length = length;
   blob->data = wasm_runtime_module_dup_data (module_inst, hb_data, length);
-
-  hb_blob_destroy (hb_blob);
 
   if (blob->length && !blob->data)
   {
