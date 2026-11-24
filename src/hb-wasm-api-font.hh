@@ -165,6 +165,8 @@ HB_WASM_API (bool_t, font_copy_glyph_outline) (HB_WASM_EXEC_ENV
 
     hb_memcpy (points, hb_outline.points.arrayZ, hb_outline.points.get_size ());
     hb_memcpy (contours, hb_outline.contours.arrayZ, hb_outline.contours.get_size ());
+    outline->n_points = hb_outline.points.length;
+    outline->n_contours = hb_outline.contours.length;
 
     return true;
   }
@@ -227,6 +229,7 @@ HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
     }
 		unsigned bytes = our_length * sizeof (int);
     hb_memcpy (their_coords, our_coords, bytes);
+    coords->length = our_length;
 
     return true;
   }

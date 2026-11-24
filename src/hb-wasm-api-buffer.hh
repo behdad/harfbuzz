@@ -129,6 +129,7 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
     unsigned bytes = length * sizeof (hb_glyph_info_t);
     hb_memcpy (info, buffer->info, bytes);
     hb_memcpy (pos, buffer->pos, bytes);
+    contents->length = length;
 
     return true;
   }
