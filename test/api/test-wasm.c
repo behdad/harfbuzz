@@ -317,6 +317,51 @@ test_wasm_start_function (void)
   hb_face_destroy (face);
 }
 
+#ifdef HB_TEST_WASM_BUDGET
+
+static void
+test_wasm_memory_limit (void)
+{
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = shape_text (font, "h");
+
+  /* The module asked for 256MiB in steps and was refused before that. */
+  g_assert_cmpuint (value (buffer, 1), >, 0);
+  g_assert_cmpuint (value (buffer, 1), <, 4096);
+  hb_buffer_destroy (buffer);
+
+  /* It made faces of 4MiB of data until it was refused that too. */
+  buffer = shape_text (font, "i");
+  g_assert_cmpuint (value (buffer, 0), >, 0);
+  g_assert_cmpuint (value (buffer, 0), <, 64);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+static void
+test_wasm_instruction_limit (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = hb_buffer_create ();
+
+  /* The module runs more than it may, and is stopped. */
+  hb_buffer_add_utf8 (buffer, "j", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  hb_buffer_destroy (buffer);
+
+  /* The font works again right after. */
+  buffer = shape_text (font, "abc");
+  g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 6);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+#endif
+
 int
 main (int argc, char **argv)
 {
@@ -329,6 +374,10 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_handle_limit);
   hb_test_add (test_wasm_destroy);
   hb_test_add (test_wasm_start_function);
+#ifdef HB_TEST_WASM_BUDGET
+  hb_test_add (test_wasm_memory_limit);
+  hb_test_add (test_wasm_instruction_limit);
+#endif
 
   return hb_test_run ();
 }

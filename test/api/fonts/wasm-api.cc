@@ -187,6 +187,48 @@ shape (void *shape_plan,
       values[0] = calls;
       values[1] = font_create (font_get_face (font)) != 0;
       return answer (buffer, values, 2);
+
+    case 'h':
+    {
+      /* As much memory as we are given, a mebibyte at a time. */
+      values[0] = __builtin_wasm_memory_size (0);
+      values[1] = 0;
+      while (values[1] < 4096 &&
+	     __builtin_wasm_memory_grow (0, 16) != (__SIZE_TYPE__) -1)
+	values[1] += 16;
+      return answer (buffer, values, 2);
+    }
+
+    case 'i':
+    {
+      /* Faces from four mebibytes of our memory, one after another,
+       * with none kept. */
+      __SIZE_TYPE__ start = __builtin_wasm_memory_grow (0, 64);
+      if (start == (__SIZE_TYPE__) -1)
+	return false;
+      blob_t blob = {64 * 65536, (char *) (start * 65536)};
+      values[0] = 0;
+      for (unsigned i = 0; i < 64; i++)
+      {
+	face_t *face = face_create (&blob, 0);
+	if (!face)
+	  break;
+	face_destroy (face);
+	values[0]++;
+      }
+      return answer (buffer, values, 1);
+    }
+
+    case 'j':
+    {
+      /* A long loop: about six times what a module may run for a
+       * buffer of one. */
+      volatile unsigned n = 0;
+      for (unsigned i = 0; i < 100000000; i++)
+	n = n + 1;
+      values[0] = n != 0;
+      return answer (buffer, values, 1);
+    }
   }
 
   return false;

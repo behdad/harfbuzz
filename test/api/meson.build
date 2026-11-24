@@ -123,6 +123,7 @@ env.set('G_TEST_SRCDIR', meson.current_source_dir())
 env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 
 foreach source : tests
+  c_args = []
   cpp_args = []
   test_name = source.split('.')[0]
 
@@ -142,7 +143,13 @@ foreach source : tests
     cpp_args += '-DHB_EXPERIMENTAL_API'
   endif
 
+  # The tests of what a Wasm module may use need the limits compiled in.
+  if test_name == 'test-wasm' and conf.get('HAVE_WASM_RUNTIME_SET_INSTRUCTION_COUNT_LIMIT', 0) == 1 and not get_option('cpp_args').contains('-DHB_NO_WASM_BUDGET')
+    c_args += '-DHB_TEST_WASM_BUDGET'
+  endif
+
   test(test_name, executable(test_name, source,
+      c_args:  c_args,
       cpp_args:  cpp_args,
       include_directories: [incconfig],
       dependencies: deps,
