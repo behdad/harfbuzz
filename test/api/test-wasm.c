@@ -310,7 +310,13 @@ test_wasm_start_function (void)
    * got nothing for it. */
   hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
   hb_buffer_guess_segment_properties (buffer);
+#ifdef HB_TEST_WASM_BUDGET
+  /* With the limits it has no allowance yet for what it asks of us,
+   * and is stopped there. */
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+#else
   g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+#endif
 
   hb_buffer_destroy (buffer);
   hb_font_destroy (font);
@@ -360,6 +366,27 @@ test_wasm_instruction_limit (void)
   hb_font_destroy (font);
 }
 
+static void
+test_wasm_host_work_limit (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = hb_buffer_create ();
+
+  /* The module stays within its instructions, and is stopped for what
+   * it has us do. */
+  hb_buffer_add_utf8 (buffer, "k", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  hb_buffer_destroy (buffer);
+
+  buffer = shape_text (font, "abc");
+  g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 6);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
 #endif
 
 int
@@ -377,6 +404,7 @@ main (int argc, char **argv)
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);
+  hb_test_add (test_wasm_host_work_limit);
 #endif
 
   return hb_test_run ();

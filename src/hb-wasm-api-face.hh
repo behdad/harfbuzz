@@ -43,6 +43,9 @@ HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
   if (unlikely (!data))
     return nullref;
 
+  if (unlikely (!HB_WASM_CHARGE (4096 + HB_WASM_COST_BYTES (blob->length))))
+    return nullref;
+
   /* The face keeps a copy of the data, outside the module's own memory.
    * Count it against the memory the module may use. */
   auto *plan = HB_WASM_PLAN;
@@ -85,6 +88,9 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
   unsigned length;
   const char *hb_data = hb_blob_get_data (hb_blob, &length);
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (length))))
+    return false;
+
   if (length <= blob->length)
   {
     char *data = HB_ARRAY_APP2NATIVE (char, blob->data, length);
@@ -120,12 +126,18 @@ HB_WASM_API (unsigned, face_get_upem) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (face);
 
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return 0;
+
   return hb_face_get_upem (face);
 }
 
 HB_WASM_API (void, face_destroy) (HB_WASM_EXEC_ENV
 				  ptr_d(face_t, face))
 {
+  if (unlikely (!HB_WASM_CHARGE (256)))
+    return;
+
   auto *plan = HB_WASM_PLAN;
   if (likely (plan))
     plan->destroy_ref (faceptr, hb_wasm_ref_type_face);

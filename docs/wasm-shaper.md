@@ -416,7 +416,7 @@ $ meson compile -C build
 
 The code in a font is not trusted, so Harfbuzz limits what it can use. A `shape` call that goes over a limit fails, and so does the shaping.
 
-* Instructions. A call may run about 134 million instructions, plus about 4 million for each character in the buffer, as the runtime's interpreter counts them. The runtime counts in a 32-bit integer, so no call can run more than about 2.1 billion. The counting happens in the interpreter only, so Harfbuzz does not use the runtime's JIT compilers.
+* Instructions. A call may run about 134 million instructions, plus about 4 million for each character in the buffer, as the runtime's interpreter counts them. The runtime counts in a 32-bit integer, so no call can run more than about 2.1 billion. The counting happens in the interpreter only, so Harfbuzz does not use the runtime's JIT compilers. What Harfbuzz does for a module when it calls one of the functions above is charged as well, against an allowance of the same size: 64 for the call, and more where the work grows with a size, such as one for every eight bytes copied.
 * Memory. A module's memory may be 32MiB, plus twice the size of the font, plus 128 times the size of the buffer's contents, about 5KiB for each character. A module that starts with more is not run, and one that asks for more as it runs is refused. The data of faces that the module creates counts against the same allowance.
 * Tokens. A module can hold 256 of them at a time.
 

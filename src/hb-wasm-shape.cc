@@ -219,9 +219,11 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
 }
 
 /* Sets how many instructions the next call into the module may run,
- * for a buffer of the given length. */
+ * for a buffer of the given length, and how much work host functions
+ * may do for it in that call: as much again. */
 static void
-limit_instructions (wasm_exec_env_t exec_env HB_UNUSED,
+limit_instructions (hb_wasm_shape_plan_t *plan HB_UNUSED,
+		    wasm_exec_env_t exec_env HB_UNUSED,
 		    unsigned buffer_len HB_UNUSED)
 {
 #ifndef HB_NO_WASM_BUDGET
@@ -229,6 +231,7 @@ limit_instructions (wasm_exec_env_t exec_env HB_UNUSED,
 		   (uint64_t) HB_WASM_MAX_INSTRUCTIONS_FACTOR * buffer_len;
   wasm_runtime_set_instruction_count_limit (exec_env,
 					    (int) hb_min (limit, (uint64_t) INT_MAX));
+  plan->work_left = limit;
 #endif
 }
 
@@ -345,7 +348,7 @@ acquire_shape_plan (hb_face_t *face,
     results[0].kind = WASM_I32;
     arguments[0].kind = WASM_I32;
     arguments[0].of.i32 = faceref;
-    limit_instructions (exec_env, 0);
+    limit_instructions (plan, exec_env, 0);
     bool ret = wasm_runtime_call_wasm_a (exec_env, func,
 					 ARRAY_LENGTH (results), results,
 					 ARRAY_LENGTH (arguments), arguments);
@@ -398,7 +401,7 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
 
       arguments[0].kind = WASM_I32;
       arguments[0].of.i32 = plan->wasm_shape_planptr;
-      limit_instructions (exec_env, 0);
+      limit_instructions (plan, exec_env, 0);
       bool ret = wasm_runtime_call_wasm_a (exec_env, func,
 					   0, nullptr,
 					   ARRAY_LENGTH (arguments), arguments);
@@ -525,7 +528,7 @@ retry:
   arguments[4].kind = WASM_I32;
   arguments[4].of.i32 = num_features;
 
-  limit_instructions (exec_env, buffer->len);
+  limit_instructions (plan, exec_env, buffer->len);
   ret = wasm_runtime_call_wasm_a (exec_env, func,
 				  ARRAY_LENGTH (results), results,
 				  ARRAY_LENGTH (arguments), arguments);
@@ -547,7 +550,7 @@ retry:
      * the runtime's message; if it ever changes, we retry needlessly. */
     const char *exception;
     exception = wasm_runtime_get_exception (module_inst);
-    if (exception && strstr (exception, "instruction limit exceeded"))
+    if (exception && strstr (exception, "limit exceeded"))
       goto fail;
 #endif
     if (retried)

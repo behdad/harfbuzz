@@ -69,6 +69,11 @@ HB_WASM_INTERFACE (bool_t, shape_with) (HB_WASM_EXEC_ENV
   if (unlikely (!features && num_features))
     return false;
 
+  /* Shaping takes time by the item.  A call that shapes leaves glyphs
+   * in the buffer, which the check above turns away the next time. */
+  if (unlikely (!HB_WASM_CHARGE (4096 + (uint64_t) buffer->len * 4096)))
+    return false;
+
   const char * shaper_list[] = {shaper, nullptr};
   return hb_shape_full (font, buffer,
 			(hb_feature_t *) features, num_features,
@@ -86,6 +91,9 @@ HB_WASM_API (bool_t, feature_copy_contents) (HB_WASM_EXEC_ENV
 
   unsigned bytes;
   if (unlikely (hb_unsigned_mul_overflows (num_features, sizeof (feature_t), &bytes)))
+    return false;
+
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes))))
     return false;
 
   if (!num_features)
@@ -114,7 +122,7 @@ HB_WASM_API (void, features_free) (HB_WASM_EXEC_ENV
 				    ptr_d(features_t, features))
 {
   HB_PTR_PARAM (features_t, features);
-  if (unlikely (!features))
+  if (unlikely (!features || !HB_WASM_CHARGE (0)))
     return;
 
   module_free (features->features);

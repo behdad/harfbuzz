@@ -174,12 +174,30 @@ struct hb_wasm_shape_plan_t
    * created and has not destroyed. */
   unsigned num_owned;
 
+  /* Charges the module for work that a host function does for it, in
+   * the unit of the instruction limit.  When the allowance of the call
+   * is spent, stops the module: the runtime fails the call once the
+   * host function returns. */
+  bool charge (uint64_t cost)
+  {
+    if (likely (cost <= work_left))
+    {
+      work_left -= cost;
+      return true;
+    }
+    work_left = 0;
+    wasm_runtime_set_exception (module_inst, "host work limit exceeded");
+    return false;
+  }
+
   /* The memory the instance may use, in bytes; the buffer length that
    * was sized for; and how much of it went into faces the module
    * created. */
   uint64_t max_memory;
   unsigned max_buffer_len;
   uint64_t face_bytes;
+  /* What host functions may still do for the module in this call. */
+  uint64_t work_left;
 };
 
 /* The plan of the instance a host function was called from.  There is
@@ -193,6 +211,35 @@ static inline uint32_t
 _hb_wasm_obj2ref (hb_wasm_shape_plan_t *plan,
 		  void *obj, unsigned type, bool owned)
 { return likely (plan) ? plan->obj2ref (obj, type, owned) : nullref; }
+
+/* The runtime counts the instructions a module runs, not what we do on
+ * its behalf.  So each host function charges the module: this much for
+ * being called, more where the work grows with a size.  The amounts
+ * are in instructions, at what the work takes next to the interpreter;
+ * they need not be exact, only not so low that a module can keep us
+ * busy for long on a small allowance. */
+#define HB_WASM_COST_CALL 64
+#define HB_WASM_COST_BYTES(n) ((uint64_t) (n) / 8)
+
+/* An instance that is still being made has no allowance yet: a module
+ * that calls us from its start function is stopped there. */
+static inline bool
+_hb_wasm_charge (wasm_module_inst_t inst,
+		 hb_wasm_shape_plan_t *plan,
+		 uint64_t cost)
+{
+  if (likely (plan))
+    return plan->charge (cost);
+  wasm_runtime_set_exception (inst, "host work limit exceeded");
+  return false;
+}
+
+#ifndef HB_NO_WASM_BUDGET
+#define HB_WASM_CHARGE_MORE(cost) _hb_wasm_charge (module_inst, HB_WASM_PLAN, cost)
+#else
+#define HB_WASM_CHARGE_MORE(cost) true
+#endif
+#define HB_WASM_CHARGE(cost) HB_WASM_CHARGE_MORE (HB_WASM_COST_CALL + (uint64_t) (cost))
 
 #define HB_REF2OBJ(obj) \
   hb_##obj##_t *obj = nullptr; \

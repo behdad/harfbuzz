@@ -34,6 +34,9 @@ namespace wasm {
 HB_WASM_API (direction_t, script_get_horizontal_direction) (HB_WASM_EXEC_ENV
 							    script_t script)
 {
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return DIRECTION_INVALID;
+
   return (direction_t)
 	 hb_script_get_horizontal_direction (hb_script_from_iso15924_tag (script));
 }

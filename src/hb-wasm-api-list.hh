@@ -31,16 +31,27 @@
 #ifdef HB_DEBUG_WASM
 namespace hb { namespace wasm {
 
+/* What a line of debug output costs a module. */
+#ifndef HB_NO_WASM_BUDGET
+#define HB_WASM_CHARGE_PRINT(str) \
+  HB_STMT_START { \
+    wasm_module_inst_t module_inst = wasm_runtime_get_module_inst (exec_env); \
+    if (unlikely (!HB_WASM_CHARGE (1024 + strlen (str)))) return; \
+  } HB_STMT_END
+#else
+#define HB_WASM_CHARGE_PRINT(str) HB_STMT_START {} HB_STMT_END
+#endif
+
 static void debugprint (HB_WASM_EXEC_ENV char *str)
-{ DEBUG_MSG (WASM, exec_env, "%s", str); }
+{ HB_WASM_CHARGE_PRINT (str); DEBUG_MSG (WASM, exec_env, "%s", str); }
 static void debugprint1 (HB_WASM_EXEC_ENV char *str, int32_t i1)
-{ DEBUG_MSG (WASM, exec_env, "%s: %d", str, i1); }
+{ HB_WASM_CHARGE_PRINT (str); DEBUG_MSG (WASM, exec_env, "%s: %d", str, i1); }
 static void debugprint2 (HB_WASM_EXEC_ENV char *str, int32_t i1, int32_t i2)
-{ DEBUG_MSG (WASM, exec_env, "%s: %d, %d", str, i1, i2); }
+{ HB_WASM_CHARGE_PRINT (str); DEBUG_MSG (WASM, exec_env, "%s: %d, %d", str, i1, i2); }
 static void debugprint3 (HB_WASM_EXEC_ENV char *str, int32_t i1, int32_t i2, int32_t i3)
-{ DEBUG_MSG (WASM, exec_env, "%s: %d, %d, %d", str, i1, i2, i3); }
+{ HB_WASM_CHARGE_PRINT (str); DEBUG_MSG (WASM, exec_env, "%s: %d, %d, %d", str, i1, i2, i3); }
 static void debugprint4 (HB_WASM_EXEC_ENV char *str, int32_t i1, int32_t i2, int32_t i3, int32_t i4)
-{ DEBUG_MSG (WASM, exec_env, "%s: %d, %d, %d, %d", str, i1, i2, i3, i4); }
+{ HB_WASM_CHARGE_PRINT (str); DEBUG_MSG (WASM, exec_env, "%s: %d, %d, %d, %d", str, i1, i2, i3, i4); }
 
 }}
 #endif

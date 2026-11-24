@@ -50,6 +50,9 @@ HB_WASM_API (bool_t, buffer_contents_realloc) (HB_WASM_EXEC_ENV
   if (hb_unsigned_mul_overflows (size, sizeof (glyph_info_t), &bytes))
     return false;
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes) * 2)))
+    return false;
+
   glyph_info_t *info = HB_ARRAY_APP2NATIVE (glyph_info_t, contents->info, contents->length);
   glyph_position_t *pos = HB_ARRAY_APP2NATIVE (glyph_position_t, contents->pos, contents->length);
 
@@ -88,7 +91,7 @@ HB_WASM_API (void, buffer_contents_free) (HB_WASM_EXEC_ENV
 					  ptr_d(buffer_contents_t, contents))
 {
   HB_PTR_PARAM (buffer_contents_t, contents);
-  if (unlikely (!contents))
+  if (unlikely (!contents || !HB_WASM_CHARGE (0)))
     return;
 
   module_free (contents->info);
@@ -106,6 +109,10 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
   HB_REF2OBJ (buffer);
   HB_PTR_PARAM (buffer_contents_t, contents);
   if (unlikely (!contents))
+    return false;
+
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (buffer->len) *
+				 (sizeof (hb_glyph_info_t) + sizeof (hb_glyph_position_t)))))
     return false;
 
   if (buffer->have_output)
@@ -169,6 +176,9 @@ HB_WASM_API (bool_t, buffer_set_contents) (HB_WASM_EXEC_ENV
   if (unlikely (hb_unsigned_mul_overflows (length, sizeof (buffer->info[0]), &bytes)))
     return false;
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes) * 2)))
+    return false;
+
   glyph_info_t *info = (glyph_info_t *) (validate_app_addr (contents->info, bytes) ? addr_app_to_native (contents->info) : nullptr);
   glyph_position_t *pos = (glyph_position_t *) (validate_app_addr (contents->pos, bytes) ? addr_app_to_native (contents->pos) : nullptr);
   if (unlikely (!info || !pos))
@@ -192,6 +202,9 @@ HB_WASM_API (direction_t, buffer_get_direction) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (buffer);
 
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return DIRECTION_INVALID;
+
   return (direction_t) hb_buffer_get_direction (buffer);
 }
 
@@ -199,6 +212,9 @@ HB_WASM_API (script_t, buffer_get_script) (HB_WASM_EXEC_ENV
 					   ptr_d(buffer_t, buffer))
 {
   HB_REF2OBJ (buffer);
+
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return 0;
 
   return hb_script_to_iso15924_tag (hb_buffer_get_script (buffer));
 }
@@ -208,6 +224,9 @@ HB_WASM_API (void, buffer_reverse) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (buffer);
 
+  if (unlikely (!HB_WASM_CHARGE (buffer->len)))
+    return;
+
   hb_buffer_reverse (buffer);
 }
 
@@ -215,6 +234,9 @@ HB_WASM_API (void, buffer_reverse_clusters) (HB_WASM_EXEC_ENV
 					     ptr_d(buffer_t, buffer))
 {
   HB_REF2OBJ (buffer);
+
+  if (unlikely (!HB_WASM_CHARGE (buffer->len)))
+    return;
 
   hb_buffer_reverse_clusters (buffer);
 }

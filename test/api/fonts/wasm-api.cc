@@ -229,6 +229,24 @@ shape (void *shape_plan,
       values[0] = n != 0;
       return answer (buffer, values, 1);
     }
+
+    case 'k':
+    {
+      /* Few instructions of our own, and a lot of work for the host:
+       * copies a table four million times. */
+      face_t *face = font_get_face (font);
+      blob_t blob = BLOB_INIT;
+      if (!face_copy_table (face, TAG ('c','m','a','p'), &blob))
+	return false;
+      unsigned length = blob.length;
+      for (unsigned i = 0; i < 4000000; i++)
+      {
+	blob.length = length;
+	face_copy_table (face, TAG ('c','m','a','p'), &blob);
+      }
+      values[0] = length != 0;
+      return answer (buffer, values, 1);
+    }
   }
 
   return false;
