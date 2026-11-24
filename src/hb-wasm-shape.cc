@@ -447,6 +447,12 @@ fail:
     ret = false;
   }
 
+  /* The instance may be kept for the next call, and the font and the
+   * buffer may be gone by then.  Forget their handles, so that a module
+   * that passes one again gets the empty object. */
+  wasm_externref_objdel (module_inst, font);
+  wasm_externref_objdel (module_inst, buffer);
+
   release_shape_plan (face_data, plan, ret);
 
   if (ret)
