@@ -247,6 +247,57 @@ test_wasm_handle_limit (void)
   hb_font_destroy (font);
 }
 
+static void
+test_wasm_destroy (void)
+{
+  hb_font_t *font = open_font ();
+  hb_codepoint_t a = 0;
+  unsigned upem = hb_face_get_upem (hb_font_get_face (font));
+  unsigned empty_upem = hb_face_get_upem (hb_face_get_empty ());
+
+  g_assert_true (hb_font_get_nominal_glyph (font, 'a', &a));
+  g_assert_cmpuint (upem, !=, empty_upem);
+
+  for (unsigned call = 1; call <= 3; call++)
+  {
+    hb_buffer_t *buffer = shape_text (font, "f");
+    g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 8);
+
+    /* The module destroyed all it created, so its instance is kept:
+     * it has counted every call so far. */
+    g_assert_cmpuint (value (buffer, 0), ==, call);
+
+    /* Its font worked, and the handle named nothing once destroyed. */
+    g_assert_cmpuint (value (buffer, 1), ==, a);
+    g_assert_cmpuint (value (buffer, 2), ==, 0);
+
+    /* So for its face.  The font on that face still had it, under a
+     * new handle, and kept it alive until that handle went too. */
+    g_assert_cmpuint (value (buffer, 3), ==, empty_upem);
+    g_assert_cmpuint (value (buffer, 4), ==, 1);
+    g_assert_cmpuint (value (buffer, 5), !=, 0);
+
+    /* What it was given is not its to destroy. */
+    g_assert_cmpuint (value (buffer, 6), ==, a);
+    g_assert_cmpuint (value (buffer, 7), ==, upem);
+
+    hb_buffer_destroy (buffer);
+  }
+
+  hb_font_destroy (font);
+
+  /* A module that keeps a font gets a new instance for each call. */
+  font = open_font ();
+  for (unsigned call = 1; call <= 3; call++)
+  {
+    hb_buffer_t *buffer = shape_text (font, "g");
+    g_assert_cmpuint (value (buffer, 0), ==, 1);
+    g_assert_cmpuint (value (buffer, 1), ==, 1);
+    hb_buffer_destroy (buffer);
+  }
+  hb_font_destroy (font);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -257,6 +308,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_created_objects);
   hb_test_add (test_wasm_handles_belong_to_the_instance);
   hb_test_add (test_wasm_handle_limit);
+  hb_test_add (test_wasm_destroy);
 
   return hb_test_run ();
 }
