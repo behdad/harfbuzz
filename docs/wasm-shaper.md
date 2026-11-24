@@ -388,12 +388,12 @@ Produces a debugging message in the host shaper's log output; the variants `debu
 
 ## Enabling the WASM shaper when building Harfbuzz
 
-First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory. (You may want to enable "fast JIT".) Then, install it.
+First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory and add the `-DWAMR_BUILD_INSTRUCTION_METERING=1` flag to the `cmake` line. Harfbuzz needs that to limit how long a font's code can run; it is in `wasm-micro-runtime` 2.3.1 and later. Then, install it.
 
 So, for example:
 
 ```
-$ cmake -B build -DWAMR_BUILD_FAST_JIT=1
+$ cmake -B build -DBUILD_SHARED_LIBS=ON -DWAMR_BUILD_INSTRUCTION_METERING=1
 $ cmake --build build --parallel
 $ sudo cmake --build build --target install
 ```
@@ -411,6 +411,18 @@ $ meson setup build -Dwasm=enabled
 ...
 $ meson compile -C build
 ```
+
+## Limits on what a font's code can do
+
+The code in a font is not trusted, so Harfbuzz limits what it can use. A `shape` call that goes over a limit fails, and so does the shaping.
+
+* Instructions. A call may run about 134 million instructions, plus about 4 million for each character in the buffer, as the runtime's interpreter counts them. The runtime counts in a 32-bit integer, so no call can run more than about 2.1 billion. The counting happens in the interpreter only, so Harfbuzz does not use the runtime's JIT compilers.
+* Memory. A module's memory may be 32MiB, plus twice the size of the font, plus 128 times the size of the buffer's contents, about 5KiB for each character. A module that starts with more is not run, and one that asks for more as it runs is refused. The data of faces that the module creates counts against the same allowance.
+* Tokens. A module can hold 256 of them at a time.
+
+The numbers are in `src/hb-limits.hh` and can be changed when building.
+
+To build without the instruction and memory limits, define `HB_NO_WASM_BUDGET`, for example with `-Dcpp_args=-DHB_NO_WASM_BUDGET`. Harfbuzz then builds against a runtime without instruction metering too, and lets the runtime use a JIT compiler if it has one, which is several times faster. Only do this if every font you load is one you trust.
 
 ## How to write a shaping engine in Rust
 
