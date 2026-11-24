@@ -86,6 +86,10 @@ if conf.get('HAVE_GRAPHITE', 0) == 1
   tests += 'test-graphite2.c'
 endif
 
+if conf.get('HAVE_WASM', 0) == 1
+  tests += 'test-wasm.c'
+endif
+
 if conf.get('HAVE_CORETEXT', 0) == 1
   tests += [
     'test-coretext.c',
