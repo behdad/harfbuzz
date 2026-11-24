@@ -18,6 +18,8 @@ The WASM code inside a font is expected to export a function called `shape` whic
 * A *feature* array.
 * The number of features.
 
+Tokens are numbers that only mean something to the module instance they were given to. A font or buffer token is good for the `shape` call it was passed to, and names nothing after that call returns. The face token is good for as long as the instance lives. Faces and fonts that the module creates itself are destroyed together with the instance, and an instance that has created one is not used for another `shape` call.
+
 The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
 
 * The `buffer_contents_t` structure
