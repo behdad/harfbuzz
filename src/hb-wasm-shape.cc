@@ -123,7 +123,6 @@ _hb_wasm_init ()
    *
    * Also, wasm-micro-runtime uses a singleton instance. So if
    * another library or client uses it, all bets are off. :-(
-   * If nothing else, around HB_REF2OBJ().
    */
 
   static bool initialized;
@@ -208,7 +207,11 @@ acquire_shape_plan (hb_face_t *face,
   plan = (hb_wasm_shape_plan_t *) hb_calloc (1, sizeof (hb_wasm_shape_plan_t));
   if (unlikely (!plan))
     return nullptr;
-  auto plan_guard = hb_make_scope_guard ([&]() { hb_free (plan); });
+  auto plan_guard = hb_make_scope_guard ([&]() {
+    plan->drop_refs ();
+    plan->refs.fini ();
+    hb_free (plan);
+  });
 
   constexpr uint32_t stack_size = 32 * 1024, heap_size = 2 * 1024 * 1024;
 
@@ -223,6 +226,14 @@ acquire_shape_plan (hb_face_t *face,
 
   wasm_runtime_set_custom_data (module_inst, plan);
 
+  /* The face keeps one handle for as long as the instance lives. */
+  HB_OBJ2REF (face);
+  if (unlikely (!faceref))
+  {
+    DEBUG_MSG (WASM, face_data, "Failed to register face object.");
+    return nullptr;
+  }
+
   wasm_exec_env_t exec_env = plan->exec_env = wasm_runtime_create_exec_env (module_inst, stack_size);
   if (unlikely (!exec_env)) {
     DEBUG_MSG (WASM, face_data, "Create wasm execution environment failed.");
@@ -235,13 +246,6 @@ acquire_shape_plan (hb_face_t *face,
   {
     wasm_val_t results[1];
     wasm_val_t arguments[1];
-
-    HB_OBJ2REF (face);
-    if (unlikely (!faceref))
-    {
-      DEBUG_MSG (WASM, face_data, "Failed to register face object.");
-      return nullptr;
-    }
 
     results[0].kind = WASM_I32;
     arguments[0].kind = WASM_I32;
@@ -274,11 +278,17 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
    * Kept on the face, an instance that owns any would collect more of
    * them with every call, and a font created on our face would keep the
    * face itself alive. */
-  if (cache && !plan->owns_objects && face_data->plan.cmpexch (nullptr, plan))
+  if (cache && !plan->owns_objects && !plan->low_on_refs () &&
+      face_data->plan.cmpexch (nullptr, plan))
     return;
 
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
+
+  /* The module's handles go before its shape_plan_destroy() runs.  We
+   * may be here because the face is being destroyed, and a handle to
+   * that face must not reach a host function. */
+  plan->drop_refs ();
 
   /* Is there even any point to having a shape_plan_destroy function
    * and calling it? */
@@ -306,6 +316,8 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
 
   wasm_runtime_destroy_exec_env (exec_env);
   wasm_runtime_deinstantiate (module_inst);
+  plan->drop_refs ();
+  plan->refs.fini ();
   hb_free (plan);
 }
 
@@ -374,6 +386,7 @@ retry:
 
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
+  unsigned num_refs = plan->refs.length;
 
   HB_OBJ2REF (font);
   HB_OBJ2REF (buffer);
@@ -448,10 +461,10 @@ fail:
   }
 
   /* The instance may be kept for the next call, and the font and the
-   * buffer may be gone by then.  Forget their handles, so that a module
-   * that passes one again gets the empty object. */
-  wasm_externref_objdel (module_inst, font);
-  wasm_externref_objdel (module_inst, buffer);
+   * buffer may be gone by then.  Drop the handles made during this
+   * call, so that a module that passes one again gets the empty
+   * object. */
+  plan->drop_refs (num_refs);
 
   release_shape_plan (face_data, plan, ret);
 

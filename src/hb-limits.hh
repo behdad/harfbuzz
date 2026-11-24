@@ -468,6 +468,14 @@ hb_budget_spend (int64_t &budget, unsigned int cost, unsigned int mult = 1)
 #endif
 
 
+/* Handles a Wasm module instance can hold at once: the face, the font
+ * and the buffer it is given, and the faces and fonts it creates.  At
+ * the limit, creating one more fails. */
+#ifndef HB_WASM_MAX_HANDLES
+#define HB_WASM_MAX_HANDLES 256
+#endif
+
+
 #ifndef HB_REPACKER_MAX_ITERATIONS
 #define HB_REPACKER_MAX_ITERATIONS 500
 #endif

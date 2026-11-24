@@ -31,10 +31,6 @@ namespace hb {
 namespace wasm {
 
 
-static void
-_hb_wasm_face_destroy (void *face)
-{ hb_face_destroy ((hb_face_t *) face); }
-
 HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
 					  ptr_d(blob_t, blob),
 					  unsigned int index)
@@ -57,16 +53,10 @@ HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
   hb_face_t *face = hb_face_create(hb_blob, index);
   hb_blob_destroy (hb_blob);
 
-  HB_OBJ2REF (face);
-  if (unlikely (!faceref))
-  {
-    hb_face_destroy (face);
-    return nullref;
-  }
-
   /* The instance owns the face, and destroys it when it goes. */
-  wasm_externref_set_cleanup (module_inst, face, _hb_wasm_face_destroy);
-  ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))->owns_objects = true;
+  HB_OBJ2REF_OWNED (face);
+  if (unlikely (!faceref))
+    hb_face_destroy (face);
 
   return faceref;
 }
