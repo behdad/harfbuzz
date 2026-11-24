@@ -274,11 +274,11 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
 		    hb_wasm_shape_plan_t *plan,
 		    bool cache = false)
 {
-  /* The faces and fonts a module creates live as long as its instance.
-   * Kept on the face, an instance that owns any would collect more of
-   * them with every call, and a font created on our face would keep the
-   * face itself alive. */
-  if (cache && !plan->owns_objects && !plan->low_on_refs () &&
+  /* The faces and fonts a module creates and does not destroy live as
+   * long as its instance.  Kept on the face, an instance that owns any
+   * would collect more of them with every call, and a font created on
+   * our face would keep the face itself alive. */
+  if (cache && !plan->num_owned && !plan->low_on_refs () &&
       face_data->plan.cmpexch (nullptr, plan))
     return;
 
@@ -460,13 +460,17 @@ fail:
     ret = false;
   }
 
+  /* A module that still owns an object expects it to be there in the
+   * next call.  It gets a fresh instance instead, and starts over. */
+  bool keep = ret && !plan->num_owned;
+
   /* The instance may be kept for the next call, and the font and the
    * buffer may be gone by then.  Drop the handles made during this
    * call, so that a module that passes one again gets the empty
    * object. */
   plan->drop_refs (num_refs);
 
-  release_shape_plan (face_data, plan, ret);
+  release_shape_plan (face_data, plan, keep);
 
   if (ret)
   {

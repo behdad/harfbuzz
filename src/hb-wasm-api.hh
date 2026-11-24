@@ -84,14 +84,25 @@ struct hb_wasm_shape_plan_t
     return entry && entry->type == type ? entry->obj : nullptr;
   }
 
+  /* Returns the handle that the object has, or nullref. */
+  uint32_t find_ref (const void *obj, unsigned type) const
+  {
+    for (const hb_wasm_ref_t &entry : refs)
+      if (entry.obj == obj && entry.type == type)
+	return entry.ref;
+    return nullref;
+  }
+
   /* Returns a handle for the object, or nullref.  An object that the
    * instance does not own keeps the handle it already has. */
   uint32_t obj2ref (void *obj, unsigned type, bool owned = false)
   {
     if (!owned)
-      for (const hb_wasm_ref_t &entry : refs)
-	if (entry.obj == obj && entry.type == type)
-	  return entry.ref;
+    {
+      uint32_t ref = find_ref (obj, type);
+      if (ref)
+	return ref;
+    }
 
     /* Numbers are not used again, so that a handle whose object is gone
      * names nothing.  They only grow, which keeps the table sorted. */
@@ -105,8 +116,22 @@ struct hb_wasm_shape_plan_t
     entry->type = type;
     entry->owned = owned;
     entry->obj = obj;
-    owns_objects = owns_objects || owned;
+    num_owned += owned;
     return entry->ref;
+  }
+
+  /* Destroys an object that the instance owns, and its handle with it.
+   * Any other handle is left alone. */
+  void destroy_ref (uint32_t ref, unsigned type)
+  {
+    unsigned i;
+    if (!refs.bfind (ref, &i))
+      return;
+    if (!refs.arrayZ[i].owned || refs.arrayZ[i].type != type)
+      return;
+    destroy_obj (refs.arrayZ[i]);
+    refs.remove_ordered (i);
+    num_owned--;
   }
 
   /* Whether the instance is to be retired, well before it could run
@@ -123,12 +148,18 @@ struct hb_wasm_shape_plan_t
       const hb_wasm_ref_t &entry = refs.arrayZ[i];
       if (!entry.owned)
 	continue;
-      if (entry.type == hb_wasm_ref_type_face)
-	hb_face_destroy ((hb_face_t *) entry.obj);
-      else if (entry.type == hb_wasm_ref_type_font)
-	hb_font_destroy ((hb_font_t *) entry.obj);
+      destroy_obj (entry);
+      num_owned--;
     }
     refs.shrink (start);
+  }
+
+  static void destroy_obj (const hb_wasm_ref_t &entry)
+  {
+    if (entry.type == hb_wasm_ref_type_face)
+      hb_face_destroy ((hb_face_t *) entry.obj);
+    else if (entry.type == hb_wasm_ref_type_font)
+      hb_font_destroy ((hb_font_t *) entry.obj);
   }
 
   wasm_module_inst_t module_inst;
@@ -139,9 +170,9 @@ struct hb_wasm_shape_plan_t
    * no number names anything in another instance. */
   hb_sorted_vector_t<hb_wasm_ref_t> refs;
   uint32_t last_ref;
-  /* Whether the module has created faces or fonts.  The instance owns
-   * them, and they are destroyed with it. */
-  bool owns_objects;
+  /* How many faces and fonts the instance owns: those that its module
+   * created and has not destroyed. */
+  unsigned num_owned;
 };
 
 #define HB_WASM_PLAN \

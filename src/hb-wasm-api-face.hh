@@ -114,6 +114,12 @@ HB_WASM_API (unsigned, face_get_upem) (HB_WASM_EXEC_ENV
   return hb_face_get_upem (face);
 }
 
+HB_WASM_API (void, face_destroy) (HB_WASM_EXEC_ENV
+				  ptr_d(face_t, face))
+{
+  HB_WASM_PLAN->destroy_ref (faceptr, hb_wasm_ref_type_face);
+}
+
 
 }}
 
