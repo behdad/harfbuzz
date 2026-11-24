@@ -21,8 +21,8 @@ CHECK_SYMBOL_LIBS = CHECK_LIBSTDCXX_LIBS + [
 
 def find_shared_libraries(builddir, soname):
     """The shared libraries of that name in builddir: ELF, Mach-O, and
-    Cygwin's DLL, which is named with the version."""
-    for name in ["lib%s.so", "lib%s.dylib", "cyg%s-0.dll"]:
+    the DLLs of Cygwin and MinGW, which are named with the version."""
+    for name in ["lib%s.so", "lib%s.dylib", "cyg%s-0.dll", "lib%s-0.dll"]:
         path = os.path.join(builddir, name % soname)
         if os.path.exists(path):
             yield path
