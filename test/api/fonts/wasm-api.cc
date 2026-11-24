@@ -20,6 +20,23 @@ static uint32_t contours[16];
 /* The buffer of the previous call. */
 static buffer_t *last_buffer;
 
+/* The face, as shape_plan_create() got it. */
+static face_t *plan_face;
+
+void *
+shape_plan_create (face_t *face)
+{
+  plan_face = face;
+  return (void *) 1;
+}
+
+extern "C" __attribute__((export_name("shape_plan_destroy"))) void
+shape_plan_destroy (void *shape_plan)
+{
+  /* This can run while the face is being destroyed. */
+  font_create (plan_face);
+}
+
 static bool_t
 answer (buffer_t *buffer, const uint32_t *values, unsigned count)
 {
@@ -102,6 +119,31 @@ shape (void *shape_plan,
       values[1] = face_get_upem (font_get_face (second));
       values[2] = third != 0;
       return answer (buffer, values, 3);
+    }
+
+    case 'd':
+      /* The handles themselves. */
+      values[0] = (uint32_t) (uintptr_t) font_get_face (font);
+      values[1] = (uint32_t) (uintptr_t) plan_face;
+      values[2] = (uint32_t) (uintptr_t) font;
+      values[3] = (uint32_t) (uintptr_t) buffer;
+      return answer (buffer, values, 4);
+
+    case 'e':
+    {
+      /* More fonts than an instance may hold. */
+      font_t *last = 0;
+      values[0] = 0;
+      for (unsigned i = 0; i < 1000; i++)
+      {
+	font_t *created = font_create (font_get_face (font));
+	if (!created)
+	  continue;
+	values[0]++;
+	last = created;
+      }
+      values[1] = face_get_upem (font_get_face (last));
+      return answer (buffer, values, 2);
     }
   }
 
