@@ -212,6 +212,8 @@ acquire_shape_plan (hb_face_t *face,
     return plan;
 
   plan = (hb_wasm_shape_plan_t *) hb_calloc (1, sizeof (hb_wasm_shape_plan_t));
+  if (unlikely (!plan))
+    return nullptr;
   auto plan_guard = hb_make_scope_guard ([&]() { hb_free (plan); });
 
   constexpr uint32_t stack_size = 32 * 1024, heap_size = 2 * 1024 * 1024;
