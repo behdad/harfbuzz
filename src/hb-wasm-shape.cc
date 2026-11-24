@@ -33,7 +33,7 @@
 
 /* Compile wasm-micro-runtime with:
  *
- * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1
+ * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_FAST_JIT=1
  * $ make
  *
  * If you manage to build a wasm shared module successfully and want to use it,

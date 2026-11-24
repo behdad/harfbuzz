@@ -372,12 +372,12 @@ Produces a debugging message in the host shaper's log output; the variants `debu
 
 ## Enabling the WASM shaper when building Harfbuzz
 
-First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory and add the `-DWAMR_BUILD_REF_TYPES=1` flag to the `cmake` line. (You may want to enable "fast JIT".) Then, install it.
+First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory. (You may want to enable "fast JIT".) Then, install it.
 
 So, for example:
 
 ```
-$ cmake -B build -DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1
+$ cmake -B build -DWAMR_BUILD_FAST_JIT=1
 $ cmake --build build --parallel
 $ sudo cmake --build build --target install
 ```
