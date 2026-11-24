@@ -67,7 +67,7 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
   if (unlikely (!blob))
     return false;
 
-  hb_blob_t *hb_blob = hb_face_reference_table (face, table_tag);
+  hb_unique_ptr_t<hb_blob_t> hb_blob (hb_face_reference_table (face, table_tag));
 
   unsigned length;
   const char *hb_data = hb_blob_get_data (hb_blob, &length);
@@ -91,8 +91,6 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
 
   blob->length = length;
   blob->data = wasm_runtime_module_dup_data (module_inst, hb_data, length);
-
-  hb_blob_destroy (hb_blob);
 
   if (blob->length && !blob->data)
   {
