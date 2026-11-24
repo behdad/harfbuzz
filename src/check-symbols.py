@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from check_helpers import CHECK_SYMBOL_LIBS
+from check_helpers import CHECK_SYMBOL_LIBS, dll_exports, find_objdump, find_shared_libraries
 
 os.environ["LC_ALL"] = "C"  # otherwise 'nm' prints in wrong order
 
@@ -54,35 +54,38 @@ nm = os.getenv("NM") or shutil.which("nm") or shutil.which("llvm-nm")
 if not nm:
     print("check-symbols.py: 'nm' not found; skipping test")
     sys.exit(77)
+objdump = find_objdump()
 
 tested = False
 stat = 0
 
 for soname in CHECK_SYMBOL_LIBS:
-    for suffix in ["so", "dylib"]:
-        so = os.path.join(builddir, "lib%s.%s" % (soname, suffix))
-        if not os.path.exists(so):
-            continue
-
+    for so in find_shared_libraries(builddir, soname):
         # On macOS, C symbols are prefixed with _
-        symprefix = "_" if suffix == "dylib" else ""
+        symprefix = "_" if so.endswith(".dylib") else ""
 
-        EXPORTED_SYMBOLS = [
-            s.split()[2]
-            for s in re.findall(
-                r"^.+ [BCDGIRSTWu] .+$",
-                subprocess.check_output(nm.split() + [so]).decode("utf-8"),
-                re.MULTILINE,
-            )
-            if not re.match(r".* %s(%s)\b" % (symprefix, IGNORED_SYMBOLS), s)
-        ]
+        if so.endswith(".dll"):
+            # nm lists the symbol table of a DLL, not what it exports
+            if not objdump:
+                print("'objdump' not found; skipping %s" % so)
+                continue
+            EXPORTED_SYMBOLS = [
+                s
+                for s in dll_exports(objdump, so)
+                if not re.match(r"(%s)\b" % IGNORED_SYMBOLS, s)
+            ]
+        else:
+            EXPORTED_SYMBOLS = [
+                s.split()[2]
+                for s in re.findall(
+                    r"^.+ [BCDGIRSTWu] .+$",
+                    subprocess.check_output(nm.split() + [so]).decode("utf-8"),
+                    re.MULTILINE,
+                )
+                if not re.match(r".* %s(%s)\b" % (symprefix, IGNORED_SYMBOLS), s)
+            ]
 
-        prefix = (
-            (symprefix + os.path.basename(so))
-            .replace("libharfbuzz", "hb")
-            .replace("-", "_")
-            .split(".")[0]
-        )
+        prefix = (symprefix + soname).replace("harfbuzz", "hb").replace("-", "_")
 
         print("Checking that %s does not expose internal symbols" % so)
         suspicious_symbols = [
