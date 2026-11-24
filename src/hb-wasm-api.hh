@@ -56,6 +56,17 @@ enum {
 
 HB_INTERNAL extern hb_user_data_key_t _hb_wasm_ref_type_key;
 
+/* A module instance, and what we know of it.  The instance carries a
+ * pointer to this as its custom data. */
+struct hb_wasm_shape_plan_t {
+  wasm_module_inst_t module_inst;
+  wasm_exec_env_t exec_env;
+  ptr_d(void, wasm_shape_plan);
+  /* Whether the module has created faces or fonts.  The instance owns
+   * them, and they are destroyed with it. */
+  bool owns_objects;
+};
+
 #define nullref 0
 
 #define HB_REF2OBJ(obj) \

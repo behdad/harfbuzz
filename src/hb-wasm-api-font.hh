@@ -33,6 +33,10 @@ namespace hb {
 namespace wasm {
 
 
+static void
+_hb_wasm_font_destroy (void *font)
+{ hb_font_destroy ((hb_font_t *) font); }
+
 HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 					  ptr_d(face_t, face))
 {
@@ -41,6 +45,16 @@ HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
   hb_font_t *font = hb_font_create (face);
 
   HB_OBJ2REF (font);
+  if (unlikely (!fontref))
+  {
+    hb_font_destroy (font);
+    return nullref;
+  }
+
+  /* The instance owns the font, and destroys it when it goes. */
+  wasm_externref_set_cleanup (module_inst, font, _hb_wasm_font_destroy);
+  ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))->owns_objects = true;
+
   return fontref;
 }
 

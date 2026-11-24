@@ -104,12 +104,6 @@ _hb_wasm_module_destroyer (uint8_t *buffer, uint32_t size)
 
 #define HB_WASM_TAG_WASM HB_TAG('W','a','s','m')
 
-struct hb_wasm_shape_plan_t {
-  wasm_module_inst_t module_inst;
-  wasm_exec_env_t exec_env;
-  ptr_d(void, wasm_shape_plan);
-};
-
 struct hb_wasm_face_data_t {
   hb_blob_t *wasm_blob;
   wasm_module_t wasm_module;
@@ -227,6 +221,8 @@ acquire_shape_plan (hb_face_t *face,
   }
   auto module_guard = hb_make_scope_guard ([&]() { wasm_runtime_deinstantiate (module_inst); });
 
+  wasm_runtime_set_custom_data (module_inst, plan);
+
   wasm_exec_env_t exec_env = plan->exec_env = wasm_runtime_create_exec_env (module_inst, stack_size);
   if (unlikely (!exec_env)) {
     DEBUG_MSG (WASM, face_data, "Create wasm execution environment failed.");
@@ -274,7 +270,11 @@ release_shape_plan (const hb_wasm_face_data_t *face_data,
 		    hb_wasm_shape_plan_t *plan,
 		    bool cache = false)
 {
-  if (cache && face_data->plan.cmpexch (nullptr, plan))
+  /* The faces and fonts a module creates live as long as its instance.
+   * Kept on the face, an instance that owns any would collect more of
+   * them with every call, and a font created on our face would keep the
+   * face itself alive. */
+  if (cache && !plan->owns_objects && face_data->plan.cmpexch (nullptr, plan))
     return;
 
   auto *module_inst = plan->module_inst;
