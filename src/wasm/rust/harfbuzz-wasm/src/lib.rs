@@ -44,6 +44,7 @@ extern "C" {
     fn font_get_glyph_v_advance(font: u32, glyph: u32) -> i32;
     fn font_copy_glyph_outline(font: u32, glyph: u32, outline: *mut CGlyphOutline) -> bool;
     fn face_copy_table(font: u32, tag: u32, blob: *mut Blob) -> bool;
+    fn blob_free(blob: *mut Blob);
     fn buffer_copy_contents(buffer: u32, cbuffer: *mut CBufferContents) -> bool;
     fn buffer_set_contents(buffer: u32, cbuffer: &CBufferContents) -> bool;
     fn buffer_contents_free(cbuffer: *mut CBufferContents);
@@ -269,6 +270,8 @@ pub struct Face(u32);
 
 impl Face {
     /// Get a blob containing the contents of the given binary font table.
+    ///
+    /// The blob is empty if the font has no such table.
     pub fn reference_table(&self, tag: &str) -> Blob {
         let mut tag_u: u32 = 0;
         let mut chars = tag.chars();
@@ -280,6 +283,14 @@ impl Face {
             data: std::ptr::null_mut(),
             length: 0,
         };
+        // SAFETY: `face_copy_table` takes a face token and a pointer to a
+        // `blob_t` that it may read and write for the call. `self.0` is
+        // the token this `Face` was made from, and `&mut blob` is a live,
+        // exclusive `Blob`, which has the layout of `blob_t` (`repr(C)`:
+        // a `u32` length, then the data pointer). The blob goes in empty,
+        // so Harfbuzz frees nothing of ours. It leaves it empty, or with
+        // `data` naming a block of `length` bytes that it allocated in
+        // this module and filled with the table: the invariant of `Blob`.
         unsafe {
             face_copy_table(self.0, tag_u, &mut blob);
         }
@@ -372,13 +383,59 @@ impl<T: BufferItem> Drop for Buffer<T> {
 }
 
 /// Some data provided by Harfbuzz.
+///
+/// Harfbuzz allocates the memory for it in the module, and gets it back
+/// when the `Blob` is dropped.
 #[derive(Debug)]
 #[repr(C)]
 pub struct Blob {
+    // INVARIANT: either `length` is 0, or `data` names a block of `length`
+    // initialized bytes that Harfbuzz allocated in this module for this
+    // `Blob` alone and that has not been freed. The fields are private so
+    // that nothing outside this crate can make a `Blob` or change one.
     /// Length of the blob in bytes
-    pub length: u32,
+    length: u32,
     /// A raw pointer to the contents
-    pub data: *mut u8,
+    data: *mut u8,
+}
+
+impl Blob {
+    /// The contents.
+    pub fn as_slice(&self) -> &[u8] {
+        // SAFETY: by the invariant, if `length` is not 0 then `data` names
+        // one block of `length` initialized bytes. Only this `Blob` knows
+        // the block: nothing writes it, and it is freed in `drop`, which
+        // takes `&mut self` and so cannot run while the slice borrows
+        // `self`.
+        unsafe { host_slice(self.data, self.length as usize) }
+    }
+
+    /// Length of the contents in bytes.
+    pub fn len(&self) -> usize {
+        self.length as usize
+    }
+
+    /// Whether there are no contents.
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
+
+impl Drop for Blob {
+    fn drop(&mut self) {
+        // SAFETY: `blob_free` takes a pointer to a `blob_t` that it may
+        // read and write for the call, whose `data` is null or a block
+        // that Harfbuzz allocated in this module and has not freed; it
+        // frees the block and empties the structure, or does neither if
+        // the call has used up its allowance of work. `self` is a live,
+        // exclusive `Blob` with the layout of `blob_t` (`repr(C)`). By the
+        // invariant `data` is such a block or the blob is empty, in which
+        // case `data` is null: `reference_table` starts from null, and
+        // Harfbuzz only stores a block together with a length that is
+        // not 0. The block is freed once: `drop` runs once, nothing else
+        // calls `blob_free`, and a `Blob` cannot be copied.
+        unsafe { blob_free(self) }
+    }
 }
 
 /// Glyph information in a buffer item provided by Harfbuzz
