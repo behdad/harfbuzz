@@ -112,6 +112,32 @@ jobs:
           -Dcpp_args=-DHB_NO_WASM_BUDGET
         meson compile -Cbuild-wasm-no-limits test-wasm
         meson test --print-errorlogs -Cbuild-wasm-no-limits test-wasm
+    - name: Test the Rust toolkit for Wasm modules
+      run: |
+        rustup target add wasm32-unknown-unknown
+        export CARGO_TARGET_DIR="$RUNNER_TEMP/wasm-rust"
+        toolkit=src/wasm/rust/harfbuzz-wasm
+        cargo build --locked --manifest-path $toolkit/Cargo.toml \
+          --target wasm32-unknown-unknown
+        cargo build --locked --manifest-path $toolkit/Cargo.toml \
+          --target wasm32-unknown-unknown --features kurbo --example test_module
+        cargo build --locked \
+          --manifest-path src/wasm/sample/rust/hello-wasm/Cargo.toml \
+          --target wasm32-unknown-unknown
+        # The test module tells what it found, a glyph for each check,
+        # without features and with.  It is a debug build, and stops
+        # where the toolkit hands something it may not to the standard
+        # library.
+        python3 src/addTable.py test/api/fonts/Roboto-Regular.abc.ttf \
+          "$RUNNER_TEMP/test_module.ttf" \
+          "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/examples/test_module.wasm"
+        for features in "" kern; do
+          answer=$(build/util/hb-shape --shapers=wasm --features="$features" \
+            --no-glyph-names --no-clusters --no-positions \
+            "$RUNNER_TEMP/test_module.ttf" a)
+          echo "$answer"
+          test "$answer" = "[1|1|1|1|1|1|1|1|1]"
+        done
 
     - name: Save Compiler Cache
       if: ${{ !cancelled() && steps.compiler-cache.outcome == 'success' }}
