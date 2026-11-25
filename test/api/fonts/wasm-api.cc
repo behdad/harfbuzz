@@ -309,6 +309,22 @@ shape (void *shape_plan,
       values[1] = positions[0].y_offset;
       return answer (buffer, values, 2);
     }
+
+    case 'p':
+    {
+      /* Sets the coordinates of the font it was given, and of one of
+       * its own. */
+      static int there[2] = {4096, -4096};
+      coords_t location = {2, there};
+      values[0] = font_set_coords (font, &location);
+      font_t *own = font_create (font_get_face (font));
+      values[1] = font_set_coords (own, &location);
+      coords_t got = {CAPACITY, coords};
+      values[2] = font_copy_coords (own, &got) && got.length == 2 &&
+		  coords[0] == 4096 && coords[1] == -4096;
+      font_destroy (own);
+      return answer (buffer, values, 3);
+    }
   }
 
   return false;

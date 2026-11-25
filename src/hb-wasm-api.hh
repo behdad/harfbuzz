@@ -84,6 +84,14 @@ struct hb_wasm_shape_plan_t
     return entry && entry->type == type ? entry->obj : nullptr;
   }
 
+  /* Whether the handle is of an object of that type that the module
+   * created. */
+  bool owns (uint32_t ref, unsigned type)
+  {
+    const hb_wasm_ref_t *entry = refs.bsearch (ref);
+    return entry && entry->type == type && entry->owned;
+  }
+
   /* Returns the handle that the object has, or nullref. */
   uint32_t find_ref (const void *obj, unsigned type) const
   {

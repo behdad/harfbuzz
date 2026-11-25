@@ -492,6 +492,36 @@ test_wasm_coords_free (void)
   hb_font_destroy (font);
 }
 
+static void
+test_wasm_coords_of_the_font_given (void)
+{
+  static const int coords[2] = {1 << 14, -(1 << 13)};
+  hb_face_t *face = hb_test_open_font_file ("fonts/wasm-coords.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer;
+  const int *now;
+  unsigned length;
+
+  hb_face_destroy (face);
+  hb_font_set_var_coords_normalized (font, coords, 2);
+
+  /* The module tries to set the coordinates of the font it was given,
+   * which is ours, and is refused.  It sets those of a font it created
+   * and reads them back. */
+  buffer = shape_text (font, "p");
+  g_assert_cmpuint (value (buffer, 0), ==, 0);
+  g_assert_cmpuint (value (buffer, 1), ==, 1);
+  g_assert_cmpuint (value (buffer, 2), ==, 1);
+  hb_buffer_destroy (buffer);
+
+  now = hb_font_get_var_coords_normalized (font, &length);
+  g_assert_cmpuint (length, ==, 2);
+  g_assert_cmpint (now[0], ==, coords[0]);
+  g_assert_cmpint (now[1], ==, coords[1]);
+
+  hb_font_destroy (font);
+}
+
 /* Opens a font that counts, in advances_asked, the advances asked of
  * it: shaping a text asks for as many each time it is done. */
 static hb_font_t *
@@ -1058,6 +1088,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_positions_of_the_caller);
   hb_test_add (test_wasm_failed_call);
   hb_test_add (test_wasm_coords_free);
+  hb_test_add (test_wasm_coords_of_the_font_given);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);

@@ -380,6 +380,12 @@ HB_WASM_API (bool_t, font_set_coords) (HB_WASM_EXEC_ENV
   if (unlikely (!HB_WASM_CHARGE (256 + length)))
     return false;
 
+  /* The font a module is given is the caller's, and is to come back as
+   * it went. */
+  hb_wasm_shape_plan_t *plan = HB_WASM_PLAN;
+  if (unlikely (!plan || !plan->owns (fontptr, hb_wasm_ref_type_font)))
+    return false;
+
   hb_font_set_var_coords_normalized(font, our_coords, length);
   return true;
 }

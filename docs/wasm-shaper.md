@@ -307,7 +307,7 @@ void coords_free(coords_t* coords);
 
 `coords_free` frees the memory allocated to a coords structure.
 
-`font_set_coords` sets the font's variation coordinates. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
+`font_set_coords` sets the variation coordinates of a font that the module created with `font_create`. The font that `shape` was given is the caller's, and is not changed: `font_set_coords` on it fails. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
 
 ## Face handling functions
 
