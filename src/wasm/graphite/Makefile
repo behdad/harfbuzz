@@ -3,6 +3,10 @@ ADD_TABLE = ../../addTable.py
 
 all: $(FONTS)
 
+# The module must import nothing but the HarfBuzz API, and must not export
+# malloc and free: HarfBuzz does not run a module that does either, unless
+# built with HB_NO_WASM_BUDGET.  shape.cc defines the WASI calls that the C
+# library would otherwise import.
 %.wasm: %.cc ../../hb-wasm-api.h
 	emcc \
 		-I ../.. \
@@ -12,7 +16,6 @@ all: $(FONTS)
 		-Wl,--no-entry \
 		-Wl,--strip-all \
 		-sERROR_ON_UNDEFINED_SYMBOLS=0 \
-		-Wl,--export=malloc -Wl,--export=free \
 		~/graphite/src/libgraphite2.a \
 		~/wasm/wasi-sdk-19.0/share/wasi-sysroot/lib/wasm32-wasi/libc.a \
 		$< \
