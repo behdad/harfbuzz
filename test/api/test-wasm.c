@@ -752,6 +752,52 @@ test_wasm_long_text_after_short (void)
 }
 
 static void
+test_wasm_features_without_room (void)
+{
+  enum { NUM_FEATURES = 90000 };
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_counting_font ("fonts/wasm-fill.ttf");
+  hb_feature_t *features = (hb_feature_t *) g_malloc (NUM_FEATURES * sizeof (hb_feature_t));
+  hb_buffer_t *buffer = hb_buffer_create ();
+  int asked;
+
+  for (unsigned i = 0; i < NUM_FEATURES; i++)
+  {
+    features[i].tag = HB_TAG ('t','e','s','t');
+    features[i].value = 7;
+    features[i].start = HB_FEATURE_GLOBAL_START;
+    features[i].end = HB_FEATURE_GLOBAL_END;
+  }
+
+  /* In the first call of an instance the module takes 1.2MB of the
+   * room, and holds on to them.  It tells the value of the last feature
+   * it was given: none here. */
+  advances_asked = 0;
+  hb_buffer_add_utf8 (buffer, "a", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (hb_buffer_get_glyph_positions (buffer, NULL)[0].y_advance, ==, 0);
+  asked = advances_asked;
+  g_assert_cmpint (asked, >, 0);
+
+  /* What is left has no room for 1.4MB of features.  The module is not
+   * called with features that it cannot read: the call is made in a
+   * new instance, where they fit, and nowhere else. */
+  advances_asked = 0;
+  hb_buffer_reset (buffer);
+  hb_buffer_add_utf8 (buffer, "a", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_true (hb_shape_full (font, buffer, features, NUM_FEATURES, shapers));
+  g_assert_cmpint (hb_buffer_get_glyph_positions (buffer, NULL)[0].y_advance, ==, 7);
+  g_assert_cmpint (hb_buffer_get_glyph_positions (buffer, NULL)[0].y_offset, ==, 1);
+  g_assert_cmpint (advances_asked, ==, asked);
+
+  hb_buffer_destroy (buffer);
+  g_free (features);
+  hb_font_destroy (font);
+}
+
+static void
 test_wasm_buffer_as_it_came (void)
 {
   hb_font_t *font = open_font ();
@@ -904,6 +950,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_module_allocator);
   hb_test_add (test_wasm_module_that_frees_nothing);
   hb_test_add (test_wasm_long_text_after_short);
+  hb_test_add (test_wasm_features_without_room);
   hb_test_add (test_wasm_buffer_as_it_came);
   hb_test_add (test_wasm_positions_of_the_caller);
   hb_test_add (test_wasm_failed_call);

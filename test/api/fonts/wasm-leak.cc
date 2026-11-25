@@ -22,7 +22,10 @@
  * them fits the room of an instance; 60000 (wasm-ask-two.ttf), when one
  * does and two do not.  With BOTH (wasm-ask-both.ttf) it asks for two
  * arrays of 30000 items twice: the room holds the first two, and the
- * module does without the others. */
+ * module does without the others.
+ *
+ * FILL (wasm-fill.ttf) frees nothing, takes 1.2MB of the room for good
+ * in the first call of an instance, and tells what features it got. */
 
 #define HB_WASM_INTERFACE(ret_t, name) \
   __attribute__((export_name(#name))) ret_t name
@@ -50,6 +53,10 @@ spin ()
   for (;;)
     n = n + 1;
 }
+#endif
+
+#ifdef FILL
+static buffer_contents_t filler = BUFFER_CONTENTS_INIT;
 #endif
 
 #ifdef KEEP
@@ -119,6 +126,15 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
   if (!table.length &&
       !face_copy_table (font_get_face (font), TAG ('m','a','x','p'), &table))
     return false;
+#endif
+
+#ifdef FILL
+  /* Two arrays of 600kB, if there is room for them. */
+  if (!filler.length)
+    buffer_contents_realloc (&filler, 30000);
+
+  /* The value of the last feature. */
+  contents.pos[0].y_advance = num_features ? features[num_features - 1].value : 0;
 #endif
 
   /* Tells the test what it got, and which call of the instance this is. */

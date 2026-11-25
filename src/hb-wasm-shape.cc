@@ -683,6 +683,11 @@ _hb_wasm_shape (hb_shape_plan_t    *shape_plan,
   hb_face_t *face = font->face;
   const hb_wasm_face_data_t *face_data = face->data.wasm;
 
+  /* The features are copied into the instance for the call. */
+  unsigned features_size;
+  if (unlikely (hb_unsigned_mul_overflows (num_features, sizeof (features[0]), &features_size)))
+    return false;
+
   /* A buffer comes to be shaped without positions.  What a caller may
    * have left in them is not for the module to see, and would not be
    * there for a call that is done over. */
@@ -747,8 +752,7 @@ retry:
   wasm_val_t arguments[5];
 
   uint32_t featuresptr;
-  featuresptr = num_features ? HB_MODULE_DUP (features,
-					      num_features * sizeof (features[0])) : 0;
+  featuresptr = features_size ? HB_MODULE_DUP (features, features_size) : 0;
 
   results[0].kind = WASM_I32;
   arguments[0].kind = WASM_I32;
@@ -762,10 +766,17 @@ retry:
   arguments[4].kind = WASM_I32;
   arguments[4].of.i32 = num_features;
 
-  limit_instructions (plan, exec_env, buffer->len);
-  ret = wasm_runtime_call_wasm_a (exec_env, func,
-				  ARRAY_LENGTH (results), results,
-				  ARRAY_LENGTH (arguments), arguments);
+  if (unlikely (num_features && !featuresptr))
+    /* The features could not be copied, and the module is not to be
+     * called with an array that it cannot read. */
+    ret = false;
+  else
+  {
+    limit_instructions (plan, exec_env, buffer->len);
+    ret = wasm_runtime_call_wasm_a (exec_env, func,
+				    ARRAY_LENGTH (results), results,
+				    ARRAY_LENGTH (arguments), arguments);
+  }
 
   if (num_features)
     HB_MODULE_FREE (featuresptr);
@@ -775,6 +786,7 @@ retry:
     const char *exception = wasm_runtime_get_exception (module_inst);
     DEBUG_MSG (WASM, module_inst, "Calling shape() failed: %s",
 	       exception ? exception :
+	       num_features && !featuresptr ? "the features could not be copied" :
 	       !ret || !results[0].of.i32 ? "it returned false" :
 	       "there was no room for a copy");
 
