@@ -175,23 +175,37 @@ struct hb_wasm_shape_plan_t
   unsigned num_owned;
 };
 
+/* The plan of the instance a host function was called from.  There is
+ * none yet while the runtime is still making the instance, which is
+ * when a module's start function and constructors run.  No handle
+ * names anything then, and no object can be given one. */
 #define HB_WASM_PLAN \
   ((hb_wasm_shape_plan_t *) wasm_runtime_get_custom_data (module_inst))
 
+static inline uint32_t
+_hb_wasm_obj2ref (hb_wasm_shape_plan_t *plan,
+		  void *obj, unsigned type, bool owned)
+{ return likely (plan) ? plan->obj2ref (obj, type, owned) : nullref; }
+
 #define HB_REF2OBJ(obj) \
-  hb_##obj##_t *obj = (hb_##obj##_t *) \
-    HB_WASM_PLAN->ref2obj (obj##ptr, hb_wasm_ref_type_##obj); \
+  hb_##obj##_t *obj = nullptr; \
   HB_STMT_START { \
+    hb_wasm_shape_plan_t *_plan = HB_WASM_PLAN; \
+    if (likely (_plan)) \
+      obj = (hb_##obj##_t *) \
+	_plan->ref2obj (obj##ptr, hb_wasm_ref_type_##obj); \
     if (unlikely (!obj)) \
       obj = hb_##obj##_get_empty (); \
   } HB_STMT_END
 
 #define HB_OBJ2REF(obj) \
-  uint32_t obj##ref = HB_WASM_PLAN->obj2ref (obj, hb_wasm_ref_type_##obj)
+  uint32_t obj##ref = _hb_wasm_obj2ref (HB_WASM_PLAN, obj, \
+					hb_wasm_ref_type_##obj, false)
 
 /* For an object the module has just created. */
 #define HB_OBJ2REF_OWNED(obj) \
-  uint32_t obj##ref = HB_WASM_PLAN->obj2ref (obj, hb_wasm_ref_type_##obj, true)
+  uint32_t obj##ref = _hb_wasm_obj2ref (HB_WASM_PLAN, obj, \
+					hb_wasm_ref_type_##obj, true)
 
 #define HB_RETURN_STRUCT(type, name) \
   type *_name_ptr = nullptr; \

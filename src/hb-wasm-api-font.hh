@@ -51,7 +51,9 @@ HB_WASM_API (ptr_t(font_t), font_create) (HB_WASM_EXEC_ENV
 HB_WASM_API (void, font_destroy) (HB_WASM_EXEC_ENV
 				  ptr_d(font_t, font))
 {
-  HB_WASM_PLAN->destroy_ref (fontptr, hb_wasm_ref_type_font);
+  auto *plan = HB_WASM_PLAN;
+  if (likely (plan))
+    plan->destroy_ref (fontptr, hb_wasm_ref_type_font);
 }
 
 HB_WASM_API (ptr_t(face_t), font_get_face) (HB_WASM_EXEC_ENV
@@ -64,6 +66,8 @@ HB_WASM_API (ptr_t(face_t), font_get_face) (HB_WASM_EXEC_ENV
   /* The face we are shaping with, or one the module created and still
    * has a handle to. */
   auto *plan = HB_WASM_PLAN;
+  if (unlikely (!plan))
+    return nullref;
   uint32_t faceref = plan->find_ref (face, hb_wasm_ref_type_face);
   if (faceref)
     return faceref;

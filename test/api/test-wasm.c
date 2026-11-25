@@ -298,6 +298,25 @@ test_wasm_destroy (void)
   hb_font_destroy (font);
 }
 
+static void
+test_wasm_start_function (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_face_t *face = hb_test_open_font_file ("fonts/wasm-start.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer = hb_buffer_create ();
+
+  /* The module called into us while its instance was being made, and
+   * got nothing for it. */
+  hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -309,6 +328,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_handles_belong_to_the_instance);
   hb_test_add (test_wasm_handle_limit);
   hb_test_add (test_wasm_destroy);
+  hb_test_add (test_wasm_start_function);
 
   return hb_test_run ();
 }
