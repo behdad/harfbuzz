@@ -432,6 +432,7 @@ test_wasm_failed_call (void)
   hb_font_funcs_set_glyph_h_advance_func (funcs, count_h_advance, NULL, NULL);
   hb_font_set_funcs (font, funcs, NULL, NULL);
   hb_font_funcs_destroy (funcs);
+  advances_asked = 0;
 
   /* The module asks for an advance and fails, with the buffer as it
    * came.  Its instance is new, and a new one would only fail again:
@@ -491,68 +492,319 @@ test_wasm_coords_free (void)
   hb_font_destroy (font);
 }
 
-/* Shapes a long text many times with one font, and returns the most
- * calls that one instance of the module got. */
+/* Opens a font that counts, in advances_asked, the advances asked of
+ * it: shaping a text asks for as many each time it is done. */
+static hb_font_t *
+open_counting_font (const char *font_file)
+{
+  hb_face_t *face = hb_test_open_font_file (font_file);
+  hb_font_t *parent = hb_font_create (face);
+  hb_font_t *font = hb_font_create_sub_font (parent);
+  hb_font_funcs_t *funcs = hb_font_funcs_create ();
+
+  hb_font_funcs_set_glyph_h_advance_func (funcs, count_h_advance, NULL, NULL);
+  hb_font_set_funcs (font, funcs, NULL, NULL);
+  hb_font_funcs_destroy (funcs);
+  hb_font_destroy (parent);
+  hb_face_destroy (face);
+  return font;
+}
+
+/* Shapes the same text many times with one font.  Returns how many
+ * instances of the module that took; the most calls that one of them
+ * got; and how many times the module shaped the text, which is more
+ * than the calls we made if some were done over. */
 static unsigned
-shape_repeatedly (const char *font_file)
+shape_repeatedly (const char *font_file, unsigned length, unsigned calls,
+		  unsigned *most_calls, unsigned *tries)
 {
   const char *shapers[] = {"wasm", NULL};
-  hb_face_t *face = hb_test_open_font_file (font_file);
-  hb_font_t *font = hb_font_create (face);
+  hb_font_t *font = open_counting_font (font_file);
   hb_buffer_t *buffer = hb_buffer_create ();
-  outline_size_t size = outline_size (font, 'a');
-  unsigned most_calls = 0;
-  char text[2001];
+  outline_size_t size = outline_size (hb_font_get_parent (font), 'a');
+  char *text = (char *) g_malloc (length + 1);
+  unsigned instances = 0;
+  int per_try = 0;
 
   g_assert_cmpuint (size.points, >, 0);
-  memset (text, 'a', sizeof (text) - 1);
-  text[sizeof (text) - 1] = '\0';
+  memset (text, 'a', length);
+  text[length] = '\0';
+  *most_calls = 0;
+  advances_asked = 0;
 
-  for (unsigned call = 0; call < 200; call++)
+  for (unsigned call = 0; call < calls; call++)
   {
     hb_glyph_position_t *pos;
-    unsigned length;
+    unsigned glyphs;
 
     hb_buffer_reset (buffer);
     hb_buffer_add_utf8 (buffer, text, -1, 0, -1);
     hb_buffer_guess_segment_properties (buffer);
     g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
 
-    /* The module got the outline it asked for, every time. */
-    pos = hb_buffer_get_glyph_positions (buffer, &length);
-    g_assert_cmpuint (length, ==, sizeof (text) - 1);
+    /* The module got the outline it asked for, every time.  It also
+     * tells which call of its instance this was. */
+    pos = hb_buffer_get_glyph_positions (buffer, &glyphs);
+    g_assert_cmpuint (glyphs, ==, length);
     g_assert_cmpuint (pos[0].x_offset, ==, size.points);
-    most_calls = MAX (most_calls, (unsigned) pos[0].y_offset);
-  }
+    instances += pos[0].y_offset == 1;
+    *most_calls = MAX (*most_calls, (unsigned) pos[0].y_offset);
 
+    /* The first call is to a new instance, and is not done over. */
+    if (!call)
+      per_try = advances_asked;
+  }
+  *tries = per_try ? (unsigned) (advances_asked / per_try) : calls;
+
+  g_free (text);
   hb_buffer_destroy (buffer);
   hb_font_destroy (font);
-  hb_face_destroy (face);
-  return most_calls;
+  return instances;
+}
+
+static hb_buffer_t *
+shape_as (hb_font_t *font, unsigned length)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_buffer_t *buffer = hb_buffer_create ();
+  char *text = (char *) g_malloc (length + 1);
+
+  memset (text, 'a', length);
+  text[length] = '\0';
+  hb_buffer_add_utf8 (buffer, text, -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_free (text);
+  return buffer;
 }
 
 static void
 test_wasm_module_that_frees_nothing (void)
 {
+  unsigned instances, most_calls, tries;
+  hb_font_t *font;
+
   /* What we copy for a module goes into room that its instance has for
    * that, and this module leaves it all there.  It is to work all the
-   * same, in a new instance when the old one is filling up... */
-  unsigned most_calls = shape_repeatedly ("fonts/wasm-leak.ttf");
-
-  /* ...and not in a new one for every call. */
+   * same: when a copy finds no room, the call is done over in a new
+   * instance.  And not in a new one for every call. */
+  instances = shape_repeatedly ("fonts/wasm-leak.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, >, 1);
+  g_assert_cmpuint (instances, <, 50);
   g_assert_cmpuint (most_calls, >, 4);
-  g_assert_cmpuint (most_calls, <, 200);
 
-  /* So is a module that has us free arrays of its own as well, as many
-   * as we allocated for it. */
-  most_calls = shape_repeatedly ("fonts/wasm-leak-own.ttf");
-  g_assert_cmpuint (most_calls, >, 4);
-  g_assert_cmpuint (most_calls, <, 200);
+  /* Each instance but the first began with a call that was done over. */
+  g_assert_cmpuint (tries, ==, 200 + instances - 1);
 
-  /* A module that holds on to something of ours, and adds nothing to
-   * it, keeps its instance. */
-  g_assert_cmpuint (shape_repeatedly ("fonts/wasm-keep.ttf"), ==, 200);
+  /* With a text of one character it is the outline that finds no room
+   * first, and the module does not look at whether it got one: the
+   * call succeeds, and is done over all the same. */
+  instances = shape_repeatedly ("fonts/wasm-leak.ttf", 1, 8000, &most_calls, &tries);
+  g_assert_cmpuint (instances, >, 1);
+  g_assert_cmpuint (instances, <, 50);
+  g_assert_cmpuint (tries, ==, 8000 + instances - 1);
+
+  /* A module that has us free arrays of its own as well, as many as we
+   * allocated for it. */
+  instances = shape_repeatedly ("fonts/wasm-leak-own.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, >, 1);
+  g_assert_cmpuint (instances, <, 50);
+  g_assert_cmpuint (tries, ==, 200 + instances - 1);
+
+  instances = shape_repeatedly ("fonts/wasm-leak-own.ttf", 2, 8000, &most_calls, &tries);
+  g_assert_cmpuint (instances, >, 1);
+  g_assert_cmpuint (instances, <, 50);
+  g_assert_cmpuint (tries, ==, 8000 + instances - 1);
+
+  /* A module that holds on to something of ours keeps its instance:
+   * a table... */
+  instances = shape_repeatedly ("fonts/wasm-keep.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 1);
+  g_assert_cmpuint (most_calls, ==, 200);
+  g_assert_cmpuint (tries, ==, 200);
+
+  /* ...or most of the room there is. */
+  instances = shape_repeatedly ("fonts/wasm-hold.ttf", 30000, 20, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 1);
+  g_assert_cmpuint (most_calls, ==, 20);
+  g_assert_cmpuint (tries, ==, 20);
+
+  /* So does one that asks at every call for more than an instance can
+   * ever hold, and does without: two arrays of which not one fits the
+   * room... */
+  instances = shape_repeatedly ("fonts/wasm-ask.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 1);
+  g_assert_cmpuint (tries, ==, 200);
+
+  /* ...or of which one does, and two do not. */
+  instances = shape_repeatedly ("fonts/wasm-ask-two.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 1);
+  g_assert_cmpuint (tries, ==, 200);
+
+  /* The copy of a buffer is two such arrays.  For a text of 60,000
+   * characters the room holds one of them and not both, and this
+   * module does without the copy: it answers with one glyph, which
+   * tells which call of its instance that was. */
+  font = open_counting_font ("fonts/wasm-keep-without.ttf");
+  hb_buffer_destroy (shape_as (font, 2000));
+  for (int call = 2; call < 8; call++)
+  {
+    hb_buffer_t *buffer = shape_as (font, 60000);
+    g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 1);
+    g_assert_cmpint (hb_buffer_get_glyph_positions (buffer, NULL)[0].y_offset, ==, call);
+    hb_buffer_destroy (buffer);
+  }
+  hb_font_destroy (font);
+
+  /* Not one that asks twice for arrays that the room holds once, and
+   * does without the second two: for all we know it left the first
+   * two where they are.  An instance in which a copy found no room is
+   * not kept, and the next call is made in a new one, once. */
+  instances = shape_repeatedly ("fonts/wasm-ask-both.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 200);
+  g_assert_cmpuint (tries, ==, 200);
+
+#ifdef HB_TEST_WASM_BUDGET
+  /* A module that frees nothing and, when it is refused a copy, runs on
+   * until it is stopped.  That call is done over too: it is for want
+   * of the copy that it ran out of instructions. */
+  instances = shape_repeatedly ("fonts/wasm-leak-spin.ttf", 1, 4000, &most_calls, &tries);
+  g_assert_cmpuint (instances, >, 1);
+  g_assert_cmpuint (instances, <, 50);
+  g_assert_cmpuint (tries, ==, 4000 + instances - 1);
+#endif
+
+#ifndef HB_TEST_WASM_BUDGET
+  /* Without the limits a module may have an allocator of its own, which
+   * the runtime then runs for what we copy.  This one's is small, is
+   * emptied at every call, and gets nothing back.  Its instance is kept
+   * too, for more than we could have copied into the room that we asked
+   * the runtime for. */
+  instances = shape_repeatedly ("fonts/wasm-allocator-arena.ttf", 2000, 100, &most_calls, &tries);
+  g_assert_cmpuint (instances, ==, 1);
+  g_assert_cmpuint (most_calls, ==, 100);
+#endif
 }
+
+static void
+assert_same_glyphs (hb_buffer_t *buffer, hb_buffer_t *buffer2)
+{
+  unsigned length, length2;
+  hb_glyph_info_t *info = hb_buffer_get_glyph_infos (buffer, &length);
+  hb_glyph_info_t *info2 = hb_buffer_get_glyph_infos (buffer2, &length2);
+
+  g_assert_cmpuint (length, ==, length2);
+  for (unsigned i = 0; i < length; i++)
+  {
+    g_assert_cmpuint (info[i].codepoint, ==, info2[i].codepoint);
+    g_assert_cmpuint (info[i].cluster, ==, info2[i].cluster);
+  }
+  g_assert_cmpmem (hb_buffer_get_glyph_positions (buffer, NULL),
+		   length * sizeof (hb_glyph_position_t),
+		   hb_buffer_get_glyph_positions (buffer2, NULL),
+		   length2 * sizeof (hb_glyph_position_t));
+}
+
+/* Shapes a long text after a number of short ones, and the same text
+ * with another font of the same file.  Returns how many times the
+ * module shaped the long text after the short ones. */
+static unsigned
+long_text_after_short (const char *font_file, unsigned short_calls)
+{
+  hb_font_t *font = open_counting_font (font_file);
+  hb_font_t *font2 = open_counting_font (font_file);
+  hb_buffer_t *after, *alone;
+  int asked, asked2;
+
+  for (unsigned call = 0; call < short_calls; call++)
+    hb_buffer_destroy (shape_as (font, 2000));
+
+  advances_asked = 0;
+  after = shape_as (font, 30000);
+  asked = advances_asked;
+  advances_asked = 0;
+  alone = shape_as (font2, 30000);
+  asked2 = advances_asked;
+  g_assert_cmpint (asked2, >, 0);
+  g_assert_cmpint (asked % asked2, ==, 0);
+
+  /* It comes out as in a new instance. */
+  g_assert_cmpuint (hb_buffer_get_length (alone), ==, 30000);
+  assert_same_glyphs (after, alone);
+
+  hb_buffer_destroy (after);
+  hb_buffer_destroy (alone);
+  hb_font_destroy (font);
+  hb_font_destroy (font2);
+  return asked / asked2;
+}
+
+static void
+test_wasm_long_text_after_short (void)
+{
+  /* The module frees nothing.  After thirteen calls its instance has
+   * room for more of the same, but not for a text that a new instance
+   * has room for.  The module has shaped the buffer by the time it
+   * finds out; the call is done over all the same, so the text is
+   * shaped twice. */
+  g_assert_cmpuint (long_text_after_short ("fonts/wasm-leak.ttf", 13), ==, 2);
+  g_assert_cmpuint (long_text_after_short ("fonts/wasm-leak-own.ttf", 13), ==, 2);
+}
+
+static void
+test_wasm_buffer_as_it_came (void)
+{
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer;
+
+  /* The module counts the calls to its instance. */
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+
+  /* In that instance it changes the buffer, leaves a position in it,
+   * and then fails.  The call is done over in a new instance, which
+   * tells what it was given: the text, not what the first try left,
+   * and no position. */
+  buffer = shape_text (font, "nxy");
+  g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 8);
+  g_assert_cmpuint (value (buffer, 7), ==, 0);
+  g_assert_cmpuint (value (buffer, 0), ==, 3);
+  g_assert_cmpuint (value (buffer, 1), ==, 'n');
+  g_assert_cmpuint (value (buffer, 2), ==, 0);
+  g_assert_cmpuint (value (buffer, 3), ==, 'x');
+  g_assert_cmpuint (value (buffer, 4), ==, 1);
+  g_assert_cmpuint (value (buffer, 5), ==, 'y');
+  g_assert_cmpuint (value (buffer, 6), ==, 2);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+static void
+test_wasm_positions_of_the_caller (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = hb_buffer_create ();
+  hb_glyph_position_t *pos;
+
+  /* A caller that wrote positions into the buffer before shaping.  The
+   * module is given none: a call that is done over could not be given
+   * them again. */
+  hb_buffer_add_utf8 (buffer, "o", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  pos = hb_buffer_get_glyph_positions (buffer, NULL);
+  pos[0].x_advance = 1234;
+  pos[0].y_offset = 5678;
+  g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpuint (value (buffer, 0), ==, 0);
+  g_assert_cmpuint (value (buffer, 1), ==, 0);
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+}
+
 
 #ifdef HB_TEST_WASM_BUDGET
 
@@ -593,7 +845,22 @@ test_wasm_instruction_limit (void)
   buffer = shape_text (font, "abc");
   g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 6);
   hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
 
+  /* In an instance that has served a call, too, the module is stopped
+   * once: a call that ran out of instructions is not made again.  The
+   * module asks for an advance before it starts. */
+  font = open_counting_font ("fonts/wasm-api.ttf");
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+  advances_asked = 0;
+  buffer = hb_buffer_create ();
+  hb_buffer_add_utf8 (buffer, "j", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (advances_asked, ==, 1);
+  hb_buffer_destroy (buffer);
   hb_font_destroy (font);
 }
 
@@ -636,6 +903,9 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_instance_kept);
   hb_test_add (test_wasm_module_allocator);
   hb_test_add (test_wasm_module_that_frees_nothing);
+  hb_test_add (test_wasm_long_text_after_short);
+  hb_test_add (test_wasm_buffer_as_it_came);
+  hb_test_add (test_wasm_positions_of_the_caller);
   hb_test_add (test_wasm_failed_call);
   hb_test_add (test_wasm_coords_free);
 #ifdef HB_TEST_WASM_BUDGET

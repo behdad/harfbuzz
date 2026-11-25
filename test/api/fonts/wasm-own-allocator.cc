@@ -1,10 +1,10 @@
-/* The Wasm modules of wasm-allocator-grow.ttf and
- * wasm-allocator-reenter.ttf.  Both export malloc() and free(), which
- * the runtime then runs for the memory Harfbuzz allocates in the
- * module, in the middle of Harfbuzz's functions.  Such a module is not
- * run when the limits are compiled in; test-wasm.c checks what happens
- * when they are not.  generate-wasm-api-font.py compiles this once for
- * each. */
+/* The Wasm modules of wasm-allocator-grow.ttf,
+ * wasm-allocator-reenter.ttf and wasm-allocator-arena.ttf.  All export
+ * malloc() and free(), which the runtime then runs for the memory
+ * Harfbuzz allocates in the module, in the middle of Harfbuzz's
+ * functions.  Such a module is not run when the limits are compiled in;
+ * test-wasm.c checks what happens when they are not.
+ * generate-wasm-api-font.py compiles this once for each. */
 
 #define HB_WASM_INTERFACE(ret_t, name) \
   __attribute__((export_name(#name))) ret_t name
@@ -138,6 +138,60 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
   if (!buffer_copy_contents (buffer, &contents))
     return false;
   contents.length = 3;
+  return buffer_set_contents (buffer, &contents);
+}
+
+#endif
+
+#ifdef ARENA
+
+/* A small allocator, emptied at every call, which nothing is given
+ * back to: the module frees none of what Harfbuzz copies for it. */
+static char arena[1 << 18];
+static unsigned used;
+static unsigned calls;
+
+extern "C" {
+
+__attribute__((export_name("malloc")))
+void *
+malloc (unsigned long size)
+{
+  if (size > sizeof arena - used)
+    return nullptr;
+  void *p = arena + used;
+  used += (size + 7) & ~7u;
+  return p;
+}
+
+__attribute__((export_name("free")))
+void
+free (void *p)
+{
+}
+
+}
+
+bool_t
+shape (void *shape_plan, font_t *font, buffer_t *buffer,
+       const feature_t *features, uint32_t num_features)
+{
+  used = 0;
+  calls++;
+
+  buffer_contents_t contents = BUFFER_CONTENTS_INIT;
+  if (!buffer_copy_contents (buffer, &contents) || !contents.length)
+    return false;
+
+  for (unsigned i = 0; i < contents.length; i++)
+    contents.info[i].codepoint = font_get_glyph (font, contents.info[i].codepoint, 0);
+
+  glyph_outline_t outline = GLYPH_OUTLINE_INIT;
+  font_copy_glyph_outline (font, contents.info[0].codepoint, &outline);
+
+  /* Tells the test what it got, and which call of the instance this is. */
+  contents.pos[0].x_offset = outline.n_points;
+  contents.pos[0].y_offset = calls;
   return buffer_set_contents (buffer, &contents);
 }
 

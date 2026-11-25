@@ -201,10 +201,26 @@ struct hb_wasm_shape_plan_t
   /* Not zero while the runtime may be running the module's own
    * allocator for us, in the middle of one of our functions. */
   unsigned allocating;
-  /* How many times we have allocated memory in the instance.  What a
-   * module frees is not counted: it can have us free what was never
-   * ours. */
-  unsigned num_allocated;
+  /* Notes an allocation of ours in the instance: one of that many
+   * blocks of its size that a request of the module's takes.  The two
+   * arrays of a buffer's contents are of no use one without the
+   * other. */
+  void note_allocation (uint32_t ref, uint32_t size, unsigned blocks)
+  {
+    /* What the room could not hold if it were empty, a new instance
+     * could not hold either. */
+    if (unlikely (!ref) && size && (uint64_t) size * blocks <= room)
+      copy_failed = true;
+  }
+
+  /* How much room the instance has for what we copy into it, in bytes:
+   * the heap we had the runtime keep there, or no bound that we know of
+   * if the module has an allocator of its own. */
+  uint64_t room;
+  /* Whether an allocation of ours in the instance failed in the current
+   * call for want of room: there was none left for something that the
+   * module had us copy. */
+  bool copy_failed;
   /* Whether the instance has served a shape() call. */
   bool used;
 };
@@ -279,28 +295,28 @@ _hb_wasm_charge (wasm_module_inst_t inst,
 static inline uint32_t
 _hb_wasm_module_malloc (wasm_module_inst_t inst,
 			hb_wasm_shape_plan_t *plan,
-			uint32_t size)
+			uint32_t size, unsigned blocks = 1)
 {
   if (unlikely (!plan))
     return nullref;
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_malloc (inst, size, nullptr);
   plan->allocating--;
-  plan->num_allocated += !!ref;
+  plan->note_allocation (ref, size, blocks);
   return ref;
 }
 
 static inline uint32_t
 _hb_wasm_module_dup (wasm_module_inst_t inst,
 		     hb_wasm_shape_plan_t *plan,
-		     const char *data, uint32_t size)
+		     const char *data, uint32_t size, unsigned blocks = 1)
 {
   if (unlikely (!plan))
     return nullref;
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_dup_data (inst, data, size);
   plan->allocating--;
-  plan->num_allocated += !!ref;
+  plan->note_allocation (ref, size, blocks);
   return ref;
 }
 
@@ -320,6 +336,11 @@ _hb_wasm_module_free (wasm_module_inst_t inst,
   _hb_wasm_module_malloc (module_inst, HB_WASM_PLAN, size)
 #define HB_MODULE_DUP(data, size) \
   _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size)
+/* For each of the two blocks of one size that a request takes. */
+#define HB_MODULE_MALLOC_PAIR(size) \
+  _hb_wasm_module_malloc (module_inst, HB_WASM_PLAN, size, 2)
+#define HB_MODULE_DUP_PAIR(data, size) \
+  _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size, 2)
 #define HB_MODULE_FREE(ref) \
   _hb_wasm_module_free (module_inst, HB_WASM_PLAN, ref)
 

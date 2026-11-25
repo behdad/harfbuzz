@@ -1,12 +1,28 @@
-/* The Wasm modules of wasm-leak.ttf, wasm-leak-own.ttf and
- * wasm-keep.ttf, which test-wasm.c shapes with.
- * generate-wasm-api-font.py compiles them.
+/* The Wasm modules of wasm-leak.ttf and of the fonts named after it,
+ * which test-wasm.c shapes with.  generate-wasm-api-font.py compiles
+ * them, each with what is said of it here defined.
  *
- * The first frees nothing of what Harfbuzz copies for it.  Modules made
- * with the Rust toolkit did not for years, and are in fonts.  The second
- * does the same and has Harfbuzz free arrays of its own besides.  The
- * third frees all but a table, which it copies once and holds on to, as
- * a module may. */
+ * wasm-leak.ttf frees nothing of what Harfbuzz copies for it.  Modules
+ * made with the Rust toolkit did not for years, and are in fonts.
+ *
+ * OWN (wasm-leak-own.ttf): the same, and has Harfbuzz free arrays of its
+ * own besides.  With SPIN as well (wasm-leak-spin.ttf) it does not stop
+ * when it is refused a copy, and runs on.
+ *
+ * KEEP (wasm-keep.ttf) frees all but a table, which it copies once and
+ * holds on to, as a module may.  With WITHOUT as well
+ * (wasm-keep-without.ttf) it does without the copy of the buffer when
+ * it is refused one, and answers with one glyph.
+ *
+ * HOLD (wasm-hold.ttf) holds on to the buffer contents as well, from
+ * call to call, and has them copied into the same arrays.
+ *
+ * ASK is KEEP, and asks at every call for two arrays of that many
+ * items, which it does without: 200000 (wasm-ask.ttf), when not one of
+ * them fits the room of an instance; 60000 (wasm-ask-two.ttf), when one
+ * does and two do not.  With BOTH (wasm-ask-both.ttf) it asks for two
+ * arrays of 30000 items twice: the room holds the first two, and the
+ * module does without the others. */
 
 #define HB_WASM_INTERFACE(ret_t, name) \
   __attribute__((export_name(#name))) ret_t name
@@ -15,6 +31,26 @@
 
 /* How many times this instance was called. */
 static unsigned calls;
+
+#ifdef HOLD
+#define KEEP
+static buffer_contents_t held = BUFFER_CONTENTS_INIT;
+#endif
+
+#ifdef ASK
+#define KEEP
+#endif
+
+#ifdef SPIN
+/* Runs until it is stopped. */
+static void
+spin ()
+{
+  volatile unsigned n = 0;
+  for (;;)
+    n = n + 1;
+}
+#endif
 
 #ifdef KEEP
 static blob_t table = BLOB_INIT;
@@ -26,20 +62,58 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
 {
   calls++;
 
-  /* From here on the buffer holds glyphs, and a call that fails is not
-   * made again in another instance. */
+  /* From here on the buffer holds glyphs. */
   if (!shape_with (font, buffer, features, num_features, "ot"))
     return false;
 
+#ifdef HOLD
+  buffer_contents_t &contents = held;
+#else
   buffer_contents_t contents = BUFFER_CONTENTS_INIT;
+#endif
   if (!buffer_copy_contents (buffer, &contents))
+  {
+#ifdef SPIN
+    spin ();
+#endif
+#ifdef WITHOUT
+    /* Hands back what part of the copy it got, and answers with one
+     * glyph of its own, which tells which call of the instance this
+     * is. */
+    static glyph_info_t one_info[1];
+    static glyph_position_t one_pos[1];
+    buffer_contents_t one = {1, one_info, one_pos};
+    buffer_contents_free (&contents);
+    one_pos[0].y_offset = calls;
+    return buffer_set_contents (buffer, &one);
+#endif
     return false;
+  }
   if (!contents.length)
     return false;
+
+#ifdef ASK
+#ifdef BOTH
+  buffer_contents_t first = BUFFER_CONTENTS_INIT;
+  if (!buffer_contents_realloc (&first, ASK))
+    return false;
+#endif
+  /* Refused, and done without. */
+  buffer_contents_t more = BUFFER_CONTENTS_INIT;
+  if (buffer_contents_realloc (&more, ASK))
+    return false;
+#ifdef BOTH
+  buffer_contents_free (&first);
+#endif
+#endif
 
   /* Like the toolkit, does not look at whether it got the outline. */
   glyph_outline_t outline = GLYPH_OUTLINE_INIT;
   font_copy_glyph_outline (font, contents.info[0].codepoint, &outline);
+#ifdef SPIN
+  if (!outline.n_points)
+    spin ();
+#endif
 
 #ifdef KEEP
   if (!table.length &&
@@ -54,7 +128,9 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
 
 #ifdef KEEP
   glyph_outline_free (&outline);
+#ifndef HOLD
   buffer_contents_free (&contents);
+#endif
 #endif
 
 #ifdef OWN

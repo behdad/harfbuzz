@@ -60,8 +60,8 @@ HB_WASM_API (bool_t, buffer_contents_realloc) (HB_WASM_EXEC_ENV
 		!HB_ARRAY_APP2NATIVE (glyph_position_t, posref, length)))
     return false;
 
-  uint32_t new_inforef = HB_MODULE_MALLOC (bytes);
-  uint32_t new_posref = HB_MODULE_MALLOC (bytes);
+  uint32_t new_inforef = HB_MODULE_MALLOC_PAIR (bytes);
+  uint32_t new_posref = HB_MODULE_MALLOC_PAIR (bytes);
 
   /* The allocations may have moved the module's memory.  Take every
    * pointer into it now. */
@@ -153,8 +153,8 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
   HB_MODULE_FREE (old_pos);
 
   unsigned bytes = length * sizeof (hb_glyph_info_t);
-  uint32_t info = HB_MODULE_DUP (buffer->info, bytes);
-  uint32_t pos = HB_MODULE_DUP (buffer->pos, bytes);
+  uint32_t info = HB_MODULE_DUP_PAIR (buffer->info, bytes);
+  uint32_t pos = HB_MODULE_DUP_PAIR (buffer->pos, bytes);
 
   /* Those may have moved the module's memory. */
   HB_PTR_PARAM_AGAIN (buffer_contents_t, contents);

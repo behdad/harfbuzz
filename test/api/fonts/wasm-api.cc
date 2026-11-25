@@ -222,7 +222,9 @@ shape (void *shape_plan,
     case 'j':
     {
       /* A long loop: about six times what a module may run for a
-       * buffer of one. */
+       * buffer of one.  Asks for an advance first, so that a font can
+       * tell how many times this ran. */
+      font_get_glyph_h_advance (font, 0);
       volatile unsigned n = 0;
       for (unsigned i = 0; i < 100000000; i++)
 	n = n + 1;
@@ -272,6 +274,39 @@ shape (void *shape_plan,
 	if (location.length || location.coords)
 	  values[0]++;
       }
+      return answer (buffer, values, 2);
+    }
+
+    case 'n':
+    {
+      /* In an instance that has served a call: changes the buffer,
+       * leaves a position in it, and fails.  In a new one: tells what
+       * it was given. */
+      if (calls > 1)
+      {
+	values[0] = values[1] = values[2] = 0;
+	answer (buffer, values, 3);
+	buffer_reverse (buffer);
+	positions[0].x_advance = 1234;
+	buffer_contents_t left = {3, infos, positions};
+	buffer_set_contents (buffer, &left);
+	return false;
+      }
+      values[0] = contents.length;
+      for (unsigned i = 0; i < 3 && i < contents.length; i++)
+      {
+	values[1 + 2 * i] = infos[i].codepoint;
+	values[2 + 2 * i] = infos[i].cluster;
+      }
+      values[7] = positions[0].x_advance;
+      return answer (buffer, values, 8);
+    }
+
+    case 'o':
+    {
+      /* Tells what positions it was given. */
+      values[0] = positions[0].x_advance;
+      values[1] = positions[0].y_offset;
       return answer (buffer, values, 2);
     }
   }
