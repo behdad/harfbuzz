@@ -790,9 +790,18 @@ test_wasm_room_guessed (void)
   g_assert_cmpuint (most_calls, >, 6);
   g_assert_cmpuint (tries, ==, 36);
 
-  /* Nor are its instances given up while the calls after that one have
-   * left no more than is still free: here on a guess from a text of
-   * one character, for one of 2000. */
+  /* The same when it takes it in the second call of an instance, as
+   * a module may that fetches a table when a text first needs it: the
+   * guess leaves out the call that left the most, whichever it was.
+   * (No call is made twice with the runtime's usual heap, as above.) */
+  instances = shape_repeatedly ("fonts/wasm-leak-late.ttf", 2000, 200, &most_calls, &tries);
+  g_assert_cmpuint (instances, <, 30);
+  g_assert_cmpuint (most_calls, >, 6);
+  g_assert_cmpuint (tries, ==, 200);
+
+  /* Nor are the instances of the first of those two given up while its
+   * other calls have left no more than is still free: here on a guess
+   * from a text of one character, for one of 2000. */
   font = open_counting_font ("fonts/wasm-fill.ttf");
   instances = 0;
   for (unsigned call = 0; call < 40; call++)

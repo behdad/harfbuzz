@@ -423,28 +423,32 @@ max_memory_for (const hb_wasm_face_data_t *face_data, unsigned buffer_len)
  * costs a call; this is to see it coming, and is only a guess.  It is
  * made in an instance in which the module has had us free nothing:
  * all that we allocated there is then still there.  It goes by what
- * the calls after the instance's first left for each item of their
- * buffers; the first may be the one that fetches what the module
- * holds on to.  What a call leaves need not grow with its buffer, so
- * no instance is given up on a guess while those calls have left no
- * more in it than is still free.  A module with an allocator of its
- * own has room without bound, and is never guessed at.  The features
- * of the call are in the instance while it runs, and take room too. */
+ * the instance's calls left for each item of their buffers, all but
+ * the call that left the most: that may be the one that fetched what
+ * the module holds on to, in the instance's first call or when a
+ * text first needed it.  What a call leaves need not grow with its
+ * buffer, so no instance is given up on a guess while those calls
+ * have left no more in it than is still free.  A module with an
+ * allocator of its own has room without bound, and is never guessed
+ * at.  The features of the call are in the instance while it runs,
+ * and take room too. */
 static bool
 has_room_for (const hb_wasm_shape_plan_t *plan,
 	      unsigned buffer_len,
 	      unsigned features_size)
 {
-  if (plan->num_freed || !plan->later_items)
+  uint64_t rest_items = plan->items - plan->most_items;
+  if (plan->num_freed || !rest_items)
     return true;
 
-  if (plan->allocated + plan->later_allocated <= plan->room)
+  uint64_t rest_allocated = plan->allocated - plan->most_allocated;
+  if (plan->allocated + rest_allocated <= plan->room)
     return true;
   if (unlikely (plan->allocated >= plan->room))
     return false;
 
   /* Neither factor is as much as 2^32. */
-  uint64_t more = plan->later_allocated * buffer_len / plan->later_items;
+  uint64_t more = rest_allocated * buffer_len / rest_items;
   return plan->allocated + more + features_size <= plan->room;
 }
 
@@ -862,11 +866,14 @@ fail:
     ret = false;
   }
 
-  if (plan->used)
+  /* For has_room_for().  What a module had us allocate while its
+   * instance was made goes with the instance's first call. */
+  uint64_t left = plan->used ? plan->allocated - allocated : plan->allocated;
+  plan->items += buffer_len;
+  if (left > plan->most_allocated)
   {
-    /* For has_room_for(). */
-    plan->later_allocated += plan->allocated - allocated;
-    plan->later_items += buffer_len;
+    plan->most_allocated = left;
+    plan->most_items = buffer_len;
   }
   plan->used = true;
 

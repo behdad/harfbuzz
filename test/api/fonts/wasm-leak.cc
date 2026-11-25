@@ -26,7 +26,8 @@
  * frees nothing, like wasm-leak.ttf.
  *
  * FILL (wasm-fill.ttf) frees nothing, takes 1.2MB of the room for good
- * in the first call of an instance, and tells what features it got. */
+ * in the first call of an instance, and tells what features it got.
+ * LATE (wasm-leak-late.ttf) takes them in the second call instead. */
 
 #define HB_WASM_INTERFACE(ret_t, name) \
   __attribute__((export_name(#name))) ret_t name
@@ -56,7 +57,7 @@ spin ()
 }
 #endif
 
-#ifdef FILL
+#if defined (FILL) || defined (LATE)
 static buffer_contents_t filler = BUFFER_CONTENTS_INIT;
 #endif
 
@@ -136,6 +137,12 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
 
   /* The value of the last feature. */
   contents.pos[0].y_advance = num_features ? features[num_features - 1].value : 0;
+#endif
+
+#ifdef LATE
+  /* The same two arrays, in the second call. */
+  if (calls == 2)
+    buffer_contents_realloc (&filler, 30000);
 #endif
 
   /* Tells the test what it got, and which call of the instance this is. */

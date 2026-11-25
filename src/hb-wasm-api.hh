@@ -233,10 +233,12 @@ struct hb_wasm_shape_plan_t
    * how many times the module has had us free something. */
   uint64_t allocated;
   unsigned num_freed;
-  /* What the calls after the instance's first have left in it, of what
-   * we allocated, and how many items the buffers they shaped had. */
-  uint64_t later_allocated;
-  uint64_t later_items;
+  /* How many items the buffers had that the instance's calls shaped;
+   * and of those calls, what the one that left the most of what we
+   * allocated left, and how many items its buffer had. */
+  uint64_t items;
+  uint64_t most_allocated;
+  uint64_t most_items;
   /* Whether an allocation of ours in the instance failed in the current
    * call for want of room: there was none left for something that the
    * module had us copy. */

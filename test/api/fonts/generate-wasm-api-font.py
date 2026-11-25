@@ -125,5 +125,6 @@ for name, *flags in [
     ("wasm-ask-both", "-DASK=30000", "-DBOTH"),
     ("wasm-fill", "-DFILL"),
     ("wasm-leak-ask", "-DASK=60000", "-DLEAK"),
+    ("wasm-leak-late", "-DLATE"),
 ]:
     generate(name, "-Wl,--max-memory=1048576", *flags, source="wasm-leak")
