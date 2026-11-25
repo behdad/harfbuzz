@@ -20,6 +20,10 @@ The WASM code inside a font is expected to export a function called `shape` whic
 
 Tokens are numbers that only mean something to the module instance they were given to. A font or buffer token is good for the `shape` call it was passed to, and names nothing after that call returns. The face token is good for as long as the instance lives. Faces and fonts that the module creates itself are the module's to destroy, with `face_destroy` and `font_destroy`. Those it still has when `shape` returns are destroyed together with the instance, which is then not used for another `shape` call.
 
+What Harfbuzz copies for a module, such as a buffer's contents, a table or an outline, it allocates inside the module's instance, in room that is 2MiB plus the size of the font. The module is to hand each copy back with the matching `_free` function when it is done with it, and may hold on to one from call to call. An instance that is left with less than 1MiB of that room after a `shape` call is not used for another one either.
+
+A `shape` call that fails does not get its instance used again. If that instance had served earlier calls, and the module has not changed the buffer, the call is made once more, in a new instance; otherwise the shaping fails.
+
 The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
 
 * The `buffer_contents_t` structure
@@ -296,9 +300,12 @@ typedef struct
 
 bool font_copy_coords(uint32 font_token, &coords_t coords);
 bool font_set_coords(uint32 font_token, &coords_t coords);
+void coords_free(coords_t* coords);
 ```
 
 `font_copy_coords` copies the font's variation coordinates into the given structure; the resulting structure has `length` equal to the number of variation axes, with each member of the `coords` array being a F2DOT14 encoding of the normalized variation value.
+
+`coords_free` frees the memory allocated to a coords structure.
 
 `font_set_coords` sets the font's variation coordinates. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
 

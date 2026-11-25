@@ -277,6 +277,13 @@ _hb_wasm_module_refusal (wasm_module_t wasm_module,
 
 #endif
 
+/* What we copy for a module goes into room that its instance has for
+ * that: this much, and the size of the font. */
+#define HB_WASM_HEAP_SIZE_MIN (2u << 20)
+
+/* How much of it is to be free for an instance to serve another call. */
+#define HB_WASM_HEAP_FREE_MIN (1u << 20)
+
 hb_wasm_face_data_t *
 _hb_wasm_shaper_face_data_create (hb_face_t *face)
 {
@@ -345,7 +352,7 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
   data->max_memory_base = HB_WASM_MAX_MEMORY_MIN +
 			  (uint64_t) HB_WASM_MAX_MEMORY_FACE_FACTOR * hb_blob_get_length (face_blob);
   /* Room for a module to hold every table of its font at once. */
-  data->heap_size = 2 * 1024 * 1024 +
+  data->heap_size = HB_WASM_HEAP_SIZE_MIN +
 		    hb_min (hb_blob_get_length (face_blob), 1u << 30);
 
   module_guard.release ();
@@ -612,6 +619,19 @@ _hb_wasm_shaper_font_data_destroy (hb_wasm_font_data_t *data HB_UNUSED)
  * shaper
  */
 
+/* Whether the instance has room left for what another call may have us
+ * copy into it. */
+static bool
+has_room (hb_wasm_shape_plan_t *plan)
+{
+  uint32_t ref = _hb_wasm_module_malloc (plan->module_inst, plan,
+					 HB_WASM_HEAP_FREE_MIN);
+  if (!ref)
+    return false;
+  _hb_wasm_module_free (plan->module_inst, plan, ref);
+  return true;
+}
+
 hb_bool_t
 _hb_wasm_shape (hb_shape_plan_t    *shape_plan,
 		hb_font_t          *font,
@@ -645,6 +665,7 @@ retry:
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
   unsigned num_refs = plan->refs.length;
+  unsigned num_allocations = plan->num_allocations;
 
   /* What the faces a module creates hold counts against its memory, from
    * when it last owned nothing. */
@@ -702,6 +723,10 @@ retry:
       DEBUG_MSG (WASM, font, "Shape failed but buffer is not in Unicode; failing...");
       goto fail;
     }
+    /* The call is made again for what earlier calls may have left in
+     * the instance.  A new instance would only do the same again. */
+    if (!plan->used)
+      goto fail;
 #ifndef HB_NO_WASM_BUDGET
     /* A module that ran out of instructions would do so again.  This is
      * the runtime's message; if it ever changes, we retry needlessly. */
@@ -731,9 +756,24 @@ fail:
     ret = false;
   }
 
+  plan->used = true;
+
   /* A module that still owns an object expects it to be there in the
    * next call.  It gets a fresh instance instead, and starts over. */
   bool keep = ret && !plan->num_owned;
+
+  /* So does a module whose instance is filling up with what we copy
+   * for it.  A module is to free that when done with it, and many free
+   * nothing: every one made with the Rust toolkit as it was until
+   * lately.  Their calls would start to fail after a while, most with
+   * the buffer already changed, so not to be made again.  We look only
+   * after a call that left more in the instance than it found there. */
+  if (keep && plan->num_allocations > num_allocations &&
+      unlikely (!has_room (plan)))
+  {
+    DEBUG_MSG (WASM, module_inst, "The module's instance is filling up; not keeping it.");
+    keep = false;
+  }
 
   /* The instance may be kept for the next call, and the font and the
    * buffer may be gone by then.  Drop the handles made during this

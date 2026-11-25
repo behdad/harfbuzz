@@ -247,6 +247,10 @@ typedef struct
   unsigned int length;
   ptr_t(int) coords;
 } coords_t;
+#define COORDS_INIT {0, 0}
+
+HB_WASM_API (void, coords_free) (HB_WASM_EXEC_ENV
+				 ptr_d(coords_t, coords));
 
 HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
 					  ptr_d(font_t, font),

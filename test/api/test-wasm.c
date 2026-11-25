@@ -410,6 +410,144 @@ test_wasm_module_allocator (void)
 #endif
 }
 
+static int advances_asked;
+
+static hb_position_t
+count_h_advance (hb_font_t *font, void *font_data HB_UNUSED,
+		 hb_codepoint_t glyph, void *user_data HB_UNUSED)
+{
+  advances_asked++;
+  return hb_font_get_glyph_h_advance (hb_font_get_parent (font), glyph);
+}
+
+static void
+test_wasm_failed_call (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *parent = open_font ();
+  hb_font_t *font = hb_font_create_sub_font (parent);
+  hb_font_funcs_t *funcs = hb_font_funcs_create ();
+  hb_buffer_t *buffer;
+
+  hb_font_funcs_set_glyph_h_advance_func (funcs, count_h_advance, NULL, NULL);
+  hb_font_set_funcs (font, funcs, NULL, NULL);
+  hb_font_funcs_destroy (funcs);
+
+  /* The module asks for an advance and fails, with the buffer as it
+   * came.  Its instance is new, and a new one would only fail again:
+   * the module is called once. */
+  buffer = hb_buffer_create ();
+  hb_buffer_add_utf8 (buffer, "l", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (advances_asked, ==, 1);
+  hb_buffer_destroy (buffer);
+
+  /* The next call is to a new instance, which is then kept: the module
+   * counts the calls to its instance. */
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 2);
+  hb_buffer_destroy (buffer);
+
+  /* A call that fails in an instance that has served others is made
+   * once more, in a new instance. */
+  buffer = hb_buffer_create ();
+  hb_buffer_add_utf8 (buffer, "l", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (advances_asked, ==, 3);
+  hb_buffer_destroy (buffer);
+
+  /* Neither of the two is kept. */
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+  hb_font_destroy (parent);
+}
+
+static void
+test_wasm_coords_free (void)
+{
+  static const int coords[2] = {1 << 14, -(1 << 13)};
+  hb_face_t *face = hb_test_open_font_file ("fonts/wasm-coords.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer;
+
+  hb_face_destroy (face);
+  hb_font_set_var_coords_normalized (font, coords, 2);
+
+  /* The module had the font's coordinates copied and freed them, many
+   * times over, and counted what went wrong. */
+  buffer = shape_text (font, "m");
+  g_assert_cmpuint (value (buffer, 0), ==, 0);
+  g_assert_cmpuint (value (buffer, 1), ==, 2);
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+}
+
+/* Shapes a long text many times with one font, and returns the most
+ * calls that one instance of the module got. */
+static unsigned
+shape_repeatedly (const char *font_file)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_face_t *face = hb_test_open_font_file (font_file);
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer = hb_buffer_create ();
+  outline_size_t size = outline_size (font, 'a');
+  unsigned most_calls = 0;
+  char text[2001];
+
+  g_assert_cmpuint (size.points, >, 0);
+  memset (text, 'a', sizeof (text) - 1);
+  text[sizeof (text) - 1] = '\0';
+
+  for (unsigned call = 0; call < 200; call++)
+  {
+    hb_glyph_position_t *pos;
+    unsigned length;
+
+    hb_buffer_reset (buffer);
+    hb_buffer_add_utf8 (buffer, text, -1, 0, -1);
+    hb_buffer_guess_segment_properties (buffer);
+    g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+
+    /* The module got the outline it asked for, every time. */
+    pos = hb_buffer_get_glyph_positions (buffer, &length);
+    g_assert_cmpuint (length, ==, sizeof (text) - 1);
+    g_assert_cmpuint (pos[0].x_offset, ==, size.points);
+    most_calls = MAX (most_calls, (unsigned) pos[0].y_offset);
+  }
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+  return most_calls;
+}
+
+static void
+test_wasm_module_that_frees_nothing (void)
+{
+  /* What we copy for a module goes into room that its instance has for
+   * that, and this module leaves it all there.  It is to work all the
+   * same, in a new instance when the old one is filling up... */
+  unsigned most_calls = shape_repeatedly ("fonts/wasm-leak.ttf");
+
+  /* ...and not in a new one for every call. */
+  g_assert_cmpuint (most_calls, >, 4);
+  g_assert_cmpuint (most_calls, <, 200);
+
+  /* A module that holds on to something of ours, and adds nothing to
+   * it, keeps its instance. */
+  g_assert_cmpuint (shape_repeatedly ("fonts/wasm-keep.ttf"), ==, 200);
+}
+
 #ifdef HB_TEST_WASM_BUDGET
 
 static void
@@ -491,6 +629,9 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_refused_modules);
   hb_test_add (test_wasm_instance_kept);
   hb_test_add (test_wasm_module_allocator);
+  hb_test_add (test_wasm_module_that_frees_nothing);
+  hb_test_add (test_wasm_failed_call);
+  hb_test_add (test_wasm_coords_free);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);

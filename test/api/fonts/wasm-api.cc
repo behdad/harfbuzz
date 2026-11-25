@@ -247,6 +247,33 @@ shape (void *shape_plan,
       values[0] = length != 0;
       return answer (buffer, values, 1);
     }
+
+    case 'l':
+    {
+      /* Fails, with the buffer as it came, after asking for something
+       * that the test counts. */
+      font_get_glyph_h_advance (font, 1);
+      return false;
+    }
+
+    case 'm':
+    {
+      /* The font's coordinates, copied into an array that the host
+       * allocates and freed again, more times than there is room for
+       * the copies. */
+      coords_t location = COORDS_INIT;
+      values[0] = values[1] = 0;
+      for (unsigned i = 0; i < 200000; i++)
+      {
+	if (!font_copy_coords (font, &location))
+	  values[0]++;
+	values[1] = location.length;
+	coords_free (&location);
+	if (location.length || location.coords)
+	  values[0]++;
+      }
+      return answer (buffer, values, 2);
+    }
   }
 
   return false;

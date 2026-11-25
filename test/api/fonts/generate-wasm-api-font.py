@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate the fonts test-wasm.c shapes with.
 
-Each is Roboto-Regular.abc.ttf with a Wasm table compiled from a .cc file
-here.  Needs clang with the wasm32 target, wasm-ld, and fontTools.
+Each is Roboto-Regular.abc.ttf, or another font here, with a Wasm table
+compiled from a .cc file here.  Needs clang with the wasm32 target,
+wasm-ld, and fontTools.
 """
 
 import subprocess
@@ -64,7 +65,7 @@ def add_start_section(data, export):
     return bytes(out)
 
 
-def generate(name, *flags, source=None, start=None):
+def generate(name, *flags, source=None, start=None, base="Roboto-Regular.abc.ttf"):
     with tempfile.TemporaryDirectory() as tmp:
         module = Path(tmp) / (name + ".wasm")
         subprocess.run(
@@ -88,7 +89,7 @@ def generate(name, *flags, source=None, start=None):
             check=True,
         )
 
-        font = TTFont(here / "Roboto-Regular.abc.ttf")
+        font = TTFont(here / base)
         table = DefaultTable("Wasm")
         table.data = module.read_bytes()
         if start:
@@ -98,6 +99,8 @@ def generate(name, *flags, source=None, start=None):
 
 
 generate("wasm-api")
+# The same module in a variable font, for the font's coordinates.
+generate("wasm-coords", source="wasm-api", base="glyf-default-instance-bounds.ttf")
 # The runtime calls this export when it makes an instance.
 generate("wasm-start", "-Wl,--export=__wasm_call_ctors")
 generate("wasm-import", "-DIMPORT", source="wasm-refused")
@@ -107,3 +110,5 @@ generate("wasm-start-section", "-DSTART", source="wasm-refused", start="early")
 generate("wasm-fixed-memory", "-Wl,--max-memory=1048576")
 generate("wasm-allocator-grow", "-DGROW", source="wasm-own-allocator")
 generate("wasm-allocator-reenter", "-DREENTER", source="wasm-own-allocator")
+generate("wasm-leak")
+generate("wasm-keep", "-DKEEP", source="wasm-leak")
