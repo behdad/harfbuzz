@@ -116,6 +116,9 @@ struct hb_wasm_face_data_t {
   /* The part of an instance's memory allowance that does not depend on
    * the buffer, in bytes. */
   uint64_t max_memory_base;
+  /* The heap the runtime keeps in an instance for what we allocate in
+   * it: the tables, outlines and buffer contents a module asks for. */
+  uint32_t heap_size;
   mutable hb_atomic_t<hb_wasm_shape_plan_t *> plan;
 };
 
@@ -341,6 +344,9 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
   hb_unique_ptr_t<hb_blob_t> face_blob (hb_face_reference_blob (face));
   data->max_memory_base = HB_WASM_MAX_MEMORY_MIN +
 			  (uint64_t) HB_WASM_MAX_MEMORY_FACE_FACTOR * hb_blob_get_length (face_blob);
+  /* Room for a module to hold every table of its font at once. */
+  data->heap_size = 2 * 1024 * 1024 +
+		    hb_min (hb_blob_get_length (face_blob), 1u << 30);
 
   module_guard.release ();
   return data;
@@ -396,7 +402,8 @@ acquire_shape_plan (hb_face_t *face,
     hb_free (plan);
   });
 
-  constexpr uint32_t stack_size = 32 * 1024, heap_size = 2 * 1024 * 1024;
+  constexpr uint32_t stack_size = 32 * 1024;
+  uint32_t heap_size = face_data->heap_size;
 
   InstantiationArgs args;
   hb_memset (&args, 0, sizeof (args));
