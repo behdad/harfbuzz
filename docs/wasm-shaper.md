@@ -87,6 +87,33 @@ bool shape_with(
 
 Run another shaping engine's shaping process on the given font and buffer. The only shaping engine guaranteed to be available is `ot`, the OpenType shaper, but others may also be available. This allows the WASM author to process a buffer "normally", before further manipulating it.
 
+* `feature_copy_contents` / `features_free`
+
+```C
+typedef struct
+{
+  uint32 tag;
+  uint32 value;
+  uint32 start;
+  uint32 end;
+} feature_t;
+
+typedef struct
+{
+  uint32 length;
+  feature_t* features;
+} features_t;
+
+bool feature_copy_contents(
+    feature_t* features,
+    uint32 num_features,
+    features_t* output
+)
+void features_free(features_t* features)
+```
+
+`feature_copy_contents` copies the features that `shape` was called with into the `output` structure, in memory that Harfbuzz allocates for it. `features_free` frees that memory. Unlike the other copy functions, this one does not look at what `output` holds: an array that is already there is neither used nor freed.
+
 ### Buffer access
 
 * `buffer_copy_contents`
