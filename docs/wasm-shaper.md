@@ -1,6 +1,6 @@
 # The web assembly shaper
 
-If the standard OpenType shaping engine doesn't give you enough flexibility, Harfbuzz allows you to write your own shaping engine in WebAssembly and embed it into your font! Any font which contains a `Wasm` table will be passed to the WebAssembly shaper.
+If the standard OpenType shaping engine doesn't give you enough flexibility, Harfbuzz allows you to write your own shaping engine in WebAssembly and embed it into your font! Any font which contains a `Wasm` table will be passed to the WebAssembly shaper. The table has to hold a WebAssembly module in the binary format; a module that the runtime's `wamrc` has compiled ahead of time is native code, and Harfbuzz does not take one from a font.
 
 ## What you can and can't do: the WASM shaper's role in shaping
 

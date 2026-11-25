@@ -179,11 +179,22 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
   if (!length)
     return nullptr;
 
+  uint8_t *wasm_data = (uint8_t *) hb_blob_get_data_writable (wasm_blob, nullptr);
+
+  /* The runtime also loads modules that were compiled ahead of time,
+   * which are native code, and runs them as they are.  Take nothing
+   * from a font but WebAssembly itself. */
+  if (unlikely (!wasm_data || length < 4 ||
+		0 != hb_memcmp (wasm_data, "\0asm", 4)))
+  {
+    DEBUG_MSG (WASM, nullptr, "Wasm table is not a WebAssembly module.");
+    return nullptr;
+  }
+
   if (!_hb_wasm_init ())
     return nullptr;
 
-  wasm_module = wasm_runtime_load ((uint8_t *) hb_blob_get_data_writable (wasm_blob, nullptr),
-				   length, error, sizeof (error));
+  wasm_module = wasm_runtime_load (wasm_data, length, error, sizeof (error));
   if (unlikely (!wasm_module))
   {
     DEBUG_MSG (WASM, nullptr, "Load wasm module failed: %s", error);
