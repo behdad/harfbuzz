@@ -24,9 +24,6 @@
  * Google Author(s): Behdad Esfahbod
  */
 
-#undef HB_DEBUG_WASM
-#define HB_DEBUG_WASM 1
-
 #include "hb-shaper-impl.hh"
 
 #ifdef HAVE_WASM
@@ -159,6 +156,12 @@ _hb_wasm_init ()
     DEBUG_MSG (WASM, nullptr, "Init runtime environment failed.");
     return false;
   }
+
+#if !HB_DEBUG_WASM
+  /* The runtime prints on stdout: a warning for an import that nothing
+   * provides, for an allocation in an instance that fails. */
+  wasm_runtime_set_log_level (WASM_LOG_LEVEL_FATAL);
+#endif
 
 #ifndef HB_WASM_NO_MODULES
   wasm_runtime_set_module_reader (_hb_wasm_module_reader,
