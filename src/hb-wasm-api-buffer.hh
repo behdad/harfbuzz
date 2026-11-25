@@ -73,8 +73,8 @@ HB_WASM_API (bool_t, buffer_contents_realloc) (HB_WASM_EXEC_ENV
 
   if (unlikely (!contents || !info || !pos || !new_info || !new_pos))
   {
-    HB_MODULE_FREE (new_inforef);
-    HB_MODULE_FREE (new_posref);
+    HB_MODULE_TAKE_BACK (new_inforef, bytes);
+    HB_MODULE_TAKE_BACK (new_posref, bytes);
     return false;
   }
 

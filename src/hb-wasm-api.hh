@@ -207,9 +207,13 @@ struct hb_wasm_shape_plan_t
    * other. */
   void note_allocation (uint32_t ref, uint32_t size, unsigned blocks)
   {
+    if (likely (ref))
+      /* Counted high rather than low: a block takes a few bytes more
+       * of the room than its size. */
+      allocated += (uint64_t) size + 16;
     /* What the room could not hold if it were empty, a new instance
      * could not hold either. */
-    if (unlikely (!ref) && size && (uint64_t) size * blocks <= room)
+    else if (size && (uint64_t) size * blocks <= room)
       copy_failed = true;
   }
 
@@ -217,6 +221,14 @@ struct hb_wasm_shape_plan_t
    * the heap we had the runtime keep there, or no bound that we know of
    * if the module has an allocator of its own. */
   uint64_t room;
+  /* How much we have allocated there since the instance was made, and
+   * how many times the module has had us free something. */
+  uint64_t allocated;
+  unsigned num_freed;
+  /* What the calls after the instance's first have left in it, of what
+   * we allocated, and how many items the buffers they shaped had. */
+  uint64_t later_allocated;
+  uint64_t later_items;
   /* Whether an allocation of ours in the instance failed in the current
    * call for want of room: there was none left for something that the
    * module had us copy. */
@@ -330,6 +342,23 @@ _hb_wasm_module_free (wasm_module_inst_t inst,
   plan->allocating++;
   wasm_runtime_module_free (inst, ref);
   plan->allocating--;
+  plan->num_freed += !!ref;
+}
+
+/* Frees a block of ours that the module was not given to keep.  It is
+ * then not among what we allocated in the instance, and not something
+ * that the module had us free. */
+static inline void
+_hb_wasm_module_take_back (wasm_module_inst_t inst,
+			   hb_wasm_shape_plan_t *plan,
+			   uint32_t ref, uint32_t size)
+{
+  if (unlikely (!plan || !ref))
+    return;
+  plan->allocating++;
+  wasm_runtime_module_free (inst, ref);
+  plan->allocating--;
+  plan->allocated -= (uint64_t) size + 16;
 }
 
 #define HB_MODULE_MALLOC(size) \
@@ -343,6 +372,8 @@ _hb_wasm_module_free (wasm_module_inst_t inst,
   _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size, 2)
 #define HB_MODULE_FREE(ref) \
   _hb_wasm_module_free (module_inst, HB_WASM_PLAN, ref)
+#define HB_MODULE_TAKE_BACK(ref, size) \
+  _hb_wasm_module_take_back (module_inst, HB_WASM_PLAN, ref, size)
 
 #define HB_REF2OBJ(obj) \
   hb_##obj##_t *obj = nullptr; \

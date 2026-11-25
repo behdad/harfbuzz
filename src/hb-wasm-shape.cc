@@ -416,10 +416,43 @@ max_memory_for (const hb_wasm_face_data_t *face_data, unsigned buffer_len)
 }
 #endif
 
+/* Whether an instance that has served calls is likely to have room
+ * for what one more leaves in it, for a buffer of the given length.
+ *
+ * A call that finds no room is done over in a new instance, which
+ * costs a call; this is to see it coming, and is only a guess.  It is
+ * made in an instance in which the module has had us free nothing:
+ * all that we allocated there is then still there.  It goes by what
+ * the calls after the instance's first left for each item of their
+ * buffers; the first may be the one that fetches what the module
+ * holds on to.  What a call leaves need not grow with its buffer, so
+ * no instance is given up on a guess while those calls have left no
+ * more in it than is still free.  A module with an allocator of its
+ * own has room without bound, and is never guessed at.  The features
+ * of the call are in the instance while it runs, and take room too. */
+static bool
+has_room_for (const hb_wasm_shape_plan_t *plan,
+	      unsigned buffer_len,
+	      unsigned features_size)
+{
+  if (plan->num_freed || !plan->later_items)
+    return true;
+
+  if (plan->allocated + plan->later_allocated <= plan->room)
+    return true;
+  if (unlikely (plan->allocated >= plan->room))
+    return false;
+
+  /* Neither factor is as much as 2^32. */
+  uint64_t more = plan->later_allocated * buffer_len / plan->later_items;
+  return plan->allocated + more + features_size <= plan->room;
+}
+
 static hb_wasm_shape_plan_t *
 acquire_shape_plan (hb_face_t *face,
 		    const hb_wasm_face_data_t *face_data,
 		    unsigned buffer_len,
+		    unsigned features_size = 0,
 		    bool fresh = false)
 {
   char error[128];
@@ -430,7 +463,9 @@ acquire_shape_plan (hb_face_t *face,
   hb_wasm_shape_plan_t *plan = fresh ? nullptr : face_data->plan.get_acquire ();
   if (likely (plan && face_data->plan.cmpexch (plan, nullptr)))
   {
-    if (likely (buffer_len <= plan->max_buffer_len))
+    if (unlikely (!has_room_for (plan, buffer_len, features_size)))
+      DEBUG_MSG (WASM, plan->module_inst, "The instance is not likely to have room for this call; making another.");
+    else if (likely (buffer_len <= plan->max_buffer_len))
     {
 #ifndef HB_NO_WASM_BUDGET
       /* An instance that serves buffers of any length was made for a
@@ -442,7 +477,7 @@ acquire_shape_plan (hb_face_t *face,
     }
 
     /* How much memory an instance may use is fixed when it is created,
-     * and this one was created for shorter buffers. */
+     * and this one was created for shorter buffers.  Or it is too full. */
     release_shape_plan (face_data, plan);
   }
 
@@ -682,6 +717,7 @@ _hb_wasm_shape (hb_shape_plan_t    *shape_plan,
   bool ret = true;
   hb_face_t *face = font->face;
   const hb_wasm_face_data_t *face_data = face->data.wasm;
+  unsigned buffer_len = buffer->len;
 
   /* The features are copied into the instance for the call. */
   unsigned features_size;
@@ -709,7 +745,8 @@ retry:
 
   wasm_function_inst_t func = nullptr;
 
-  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data, buffer->len, retried);
+  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data, buffer->len,
+						   features_size, retried);
   if (unlikely (!plan))
   {
     DEBUG_MSG (WASM, face_data, "Acquiring shape-plan failed.");
@@ -719,6 +756,7 @@ retry:
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
   unsigned num_refs = plan->refs.length;
+  uint64_t allocated = plan->allocated;
   plan->copy_failed = false;
 
   if (plan->used && !retried)
@@ -778,8 +816,9 @@ retry:
 				    ARRAY_LENGTH (arguments), arguments);
   }
 
-  if (num_features)
-    HB_MODULE_FREE (featuresptr);
+  /* The features were lent for the call: they are not among what it
+   * leaves in the instance. */
+  HB_MODULE_TAKE_BACK (featuresptr, features_size);
 
   if (unlikely (!ret || !results[0].of.i32 || plan->copy_failed))
   {
@@ -823,6 +862,12 @@ fail:
     ret = false;
   }
 
+  if (plan->used)
+  {
+    /* For has_room_for(). */
+    plan->later_allocated += plan->allocated - allocated;
+    plan->later_items += buffer_len;
+  }
   plan->used = true;
 
   /* A module that still owns an object expects it to be there in the

@@ -22,7 +22,8 @@
  * them fits the room of an instance; 60000 (wasm-ask-two.ttf), when one
  * does and two do not.  With BOTH (wasm-ask-both.ttf) it asks for two
  * arrays of 30000 items twice: the room holds the first two, and the
- * module does without the others.
+ * module does without the others.  With LEAK (wasm-leak-ask.ttf) it
+ * frees nothing, like wasm-leak.ttf.
  *
  * FILL (wasm-fill.ttf) frees nothing, takes 1.2MB of the room for good
  * in the first call of an instance, and tells what features it got. */
@@ -40,7 +41,7 @@ static unsigned calls;
 static buffer_contents_t held = BUFFER_CONTENTS_INIT;
 #endif
 
-#ifdef ASK
+#if defined (ASK) && !defined (LEAK)
 #define KEEP
 #endif
 
