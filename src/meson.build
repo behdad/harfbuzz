@@ -652,7 +652,7 @@ else
   # GNU-style toolchains export every global symbol of a DLL unless some
   # symbol is marked for export. Not for default_library=both, where the
   # static library is made of the same objects.
-  if host_machine.system() == 'windows' and get_option('default_library') == 'shared'
+  if host_machine.system() in ['windows', 'cygwin'] and get_option('default_library') == 'shared'
     extra_hb_cpp_args += '-DHB_DLL_EXPORT'
   endif
   hb_so_version = '0'
