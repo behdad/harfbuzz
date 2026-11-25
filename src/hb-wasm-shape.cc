@@ -30,7 +30,7 @@
 
 /* Compile wasm-micro-runtime with:
  *
- * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_INSTRUCTION_METERING=1
+ * $ cmake -DWAMR_BUILD_INSTRUCTION_METERING=1
  * $ make
  *
  * If you manage to build a wasm shared module successfully and want to use it,
