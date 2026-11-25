@@ -98,6 +98,20 @@ jobs:
         name: harfbuzz
         path: build/meson-dist/harfbuzz-*.tar.xz
         if-no-files-found: error
+    - name: Test the Wasm shaper without its limits
+      run: |
+        # Some of what test-wasm.c checks is only there without them:
+        # a module with an allocator of its own is not run with them.
+        meson setup build-wasm-no-limits \
+          -Dauto_features=disabled \
+          -Dglib=enabled \
+          -Dtests=enabled \
+          -Dwasm=enabled \
+          -Doptimization=2 \
+          -Ddocs=disabled \
+          -Dcpp_args=-DHB_NO_WASM_BUDGET
+        meson compile -Cbuild-wasm-no-limits test-wasm
+        meson test --print-errorlogs -Cbuild-wasm-no-limits test-wasm
 
     - name: Save Compiler Cache
       if: ${{ !cancelled() && steps.compiler-cache.outcome == 'success' }}
