@@ -1,6 +1,7 @@
 HarfBuzz is licensed under the so-called "Old MIT" license.  Details follow.
 For parts of HarfBuzz that are licensed under different licenses see individual
-files names COPYING in subdirectories where applicable.
+files named COPYING in subdirectories where applicable. The Unicode data used
+to generate tables in HarfBuzz is covered by the notice in COPYING.unicode.
 
 Copyright © 2010-2022  Google, Inc.
 Copyright © 2015-2020  Ebrahim Byagowi
