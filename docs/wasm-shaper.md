@@ -1,6 +1,6 @@
 # The web assembly shaper
 
-If the standard OpenType shaping engine doesn't give you enough flexibility, Harfbuzz allows you to write your own shaping engine in WebAssembly and embed it into your font! Any font which contains a `Wasm` table will be passed to the WebAssembly shaper.
+If the standard OpenType shaping engine doesn't give you enough flexibility, Harfbuzz allows you to write your own shaping engine in WebAssembly and embed it into your font! Any font which contains a `Wasm` table will be passed to the WebAssembly shaper. The table has to hold a WebAssembly module in the binary format; a module that the runtime's `wamrc` has compiled ahead of time is native code, and Harfbuzz does not take one from a font.
 
 ## What you can and can't do: the WASM shaper's role in shaping
 
@@ -388,12 +388,12 @@ Produces a debugging message in the host shaper's log output; the variants `debu
 
 ## Enabling the WASM shaper when building Harfbuzz
 
-First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory. (You may want to enable "fast JIT".) Then, install it.
+First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory and add the `-DWAMR_BUILD_INSTRUCTION_METERING=1` flag to the `cmake` line. Harfbuzz needs that to limit how long a font's code can run; it is in `wasm-micro-runtime` 2.3.1 and later. Then, install it.
 
 So, for example:
 
 ```
-$ cmake -B build -DWAMR_BUILD_FAST_JIT=1
+$ cmake -B build -DBUILD_SHARED_LIBS=ON -DWAMR_BUILD_INSTRUCTION_METERING=1
 $ cmake --build build --parallel
 $ sudo cmake --build build --target install
 ```
@@ -411,6 +411,24 @@ $ meson setup build -Dwasm=enabled
 ...
 $ meson compile -C build
 ```
+
+## Limits on what a font's code can do
+
+The code in a font is not trusted, so Harfbuzz limits what it can use. A `shape` call that goes over a limit fails, and so does the shaping.
+
+* Instructions. A call may run about 134 million instructions, plus about 4 million for each character in the buffer, as the runtime's interpreter counts them. The runtime counts in a 32-bit integer, so no call can run more than about 2.1 billion. The counting happens in the interpreter only, so Harfbuzz does not use the runtime's JIT compilers. What Harfbuzz does for a module when it calls one of the functions above is charged as well, against an allowance of the same size: 64 for the call, and more where the work grows with a size, such as one for every eight bytes copied.
+* Memory. A module's memory may be 32MiB, plus twice the size of the font, plus 128 times the size of the buffer's contents, about 5KiB for each character. A module that starts with more is not run, and one that asks for more as it runs is refused. The data of faces that the module creates counts against the same allowance.
+* Tokens. A module can hold 256 of them at a time.
+
+The numbers are in `src/hb-limits.hh` and can be changed when building.
+
+These limits cover the calls Harfbuzz makes into a module and the functions above. Some modules have the runtime run more than that, and Harfbuzz does not run them at all; their fonts are shaped as if they had no `Wasm` table. That is a module which
+
+* imports a function that the runtime provides and that is not one of the ones above: the runtime's own C library and WASI functions. An import that nothing provides, such as the JavaScript glue that `wasm-bindgen` adds, is fine as long as the module does not call it;
+* has a start function, or exports `_initialize`, `__post_instantiate` or `__wasm_call_ctors`, which the runtime runs when it makes an instance;
+* exports both `malloc` and `free` (or AssemblyScript's `__new` with `__release` or `__unpin`), which the runtime would then run for the memory Harfbuzz allocates in the module.
+
+To build without these limits, and run such modules too, define `HB_NO_WASM_BUDGET`, for example with `-Dcpp_args=-DHB_NO_WASM_BUDGET`. Harfbuzz then builds against a runtime without instruction metering too, and lets the runtime use a JIT compiler if it has one, which is several times faster. Only do this if every font you load is one you trust.
 
 ## How to write a shaping engine in Rust
 

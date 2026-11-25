@@ -468,6 +468,37 @@ hb_budget_spend (int64_t &budget, unsigned int cost, unsigned int mult = 1)
 #endif
 
 
+/* What a font's Wasm module may use, unless HB_NO_WASM_BUDGET is defined.
+ *
+ * Memory, in bytes: a fixed allowance, plus so many times the size of
+ * the font, plus so many times the size of the buffer's contents.  The
+ * shapers we measured start at 1MiB to 16MiB whatever the font, and
+ * grow by up to 3.7KiB for each character, 93 times what the character
+ * takes in the buffer.
+ *
+ * Instructions, in one call: a fixed allowance, which is also what
+ * shape_plan_create() gets, plus so many for each item in the buffer.
+ * The runtime counts in an int, so the sum stops at INT_MAX however
+ * long the text.  Graphite compiled to Wasm runs up to 24 thousand
+ * instructions for each character, and 53 million in
+ * shape_plan_create().  The example shapers that measure the distance
+ * between glyph outlines run 1.7 to 3.5 million. */
+#ifndef HB_WASM_MAX_MEMORY_MIN
+#define HB_WASM_MAX_MEMORY_MIN (32u << 20)
+#endif
+#ifndef HB_WASM_MAX_MEMORY_FACE_FACTOR
+#define HB_WASM_MAX_MEMORY_FACE_FACTOR 2
+#endif
+#ifndef HB_WASM_MAX_MEMORY_BUFFER_FACTOR
+#define HB_WASM_MAX_MEMORY_BUFFER_FACTOR 128
+#endif
+#ifndef HB_WASM_MAX_INSTRUCTIONS_MIN
+#define HB_WASM_MAX_INSTRUCTIONS_MIN (1 << 27)
+#endif
+#ifndef HB_WASM_MAX_INSTRUCTIONS_FACTOR
+#define HB_WASM_MAX_INSTRUCTIONS_FACTOR (1 << 22)
+#endif
+
 /* Handles a Wasm module instance can hold at once: the face, the font
  * and the buffer it is given, and the faces and fonts it creates.  At
  * the limit, creating one more fails. */

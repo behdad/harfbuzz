@@ -69,6 +69,11 @@ HB_WASM_INTERFACE (bool_t, shape_with) (HB_WASM_EXEC_ENV
   if (unlikely (!features && num_features))
     return false;
 
+  /* Shaping takes time by the item.  A call that shapes leaves glyphs
+   * in the buffer, which the check above turns away the next time. */
+  if (unlikely (!HB_WASM_CHARGE (4096 + (uint64_t) buffer->len * 4096)))
+    return false;
+
   const char * shaper_list[] = {shaper, nullptr};
   return hb_shape_full (font, buffer,
 			(hb_feature_t *) features, num_features,
@@ -88,6 +93,9 @@ HB_WASM_API (bool_t, feature_copy_contents) (HB_WASM_EXEC_ENV
   if (unlikely (hb_unsigned_mul_overflows (num_features, sizeof (feature_t), &bytes)))
     return false;
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes))))
+    return false;
+
   if (!num_features)
   {
     output->length = 0;
@@ -95,14 +103,23 @@ HB_WASM_API (bool_t, feature_copy_contents) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  HB_ARRAY_PARAM (const feature_t, features, num_features);
-  if (unlikely (!features))
+  if (unlikely (!HB_ARRAY_APP2NATIVE (const feature_t, featuresptr, num_features)))
     return false;
 
-  feature_t *dst = nullptr;
-  uint32_t dstref = module_malloc (bytes, (void **) &dst);
+  uint32_t dstref = HB_MODULE_MALLOC (bytes);
   if (unlikely (!dstref))
     return false;
+
+  /* The allocation may have moved the module's memory.  Take every
+   * pointer into it now. */
+  HB_PTR_PARAM_AGAIN (features_t, output);
+  const feature_t *features = HB_ARRAY_APP2NATIVE (const feature_t, featuresptr, num_features);
+  feature_t *dst = HB_ARRAY_APP2NATIVE (feature_t, dstref, num_features);
+  if (unlikely (!output || !features || !dst))
+  {
+    HB_MODULE_FREE (dstref);
+    return false;
+  }
 
   hb_memcpy (dst, features, bytes);
   output->length = num_features;
@@ -114,12 +131,15 @@ HB_WASM_API (void, features_free) (HB_WASM_EXEC_ENV
 				    ptr_d(features_t, features))
 {
   HB_PTR_PARAM (features_t, features);
-  if (unlikely (!features))
+  if (unlikely (!features || !HB_WASM_CHARGE (0)))
     return;
 
-  module_free (features->features);
+  uint32_t ref = features->features;
   features->features = nullref;
   features->length = 0;
+
+  /* Last: the features are not ours to write after this. */
+  HB_MODULE_FREE (ref);
 }
 
 }}

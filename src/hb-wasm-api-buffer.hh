@@ -50,53 +50,63 @@ HB_WASM_API (bool_t, buffer_contents_realloc) (HB_WASM_EXEC_ENV
   if (hb_unsigned_mul_overflows (size, sizeof (glyph_info_t), &bytes))
     return false;
 
-  glyph_info_t *info = HB_ARRAY_APP2NATIVE (glyph_info_t, contents->info, contents->length);
-  glyph_position_t *pos = HB_ARRAY_APP2NATIVE (glyph_position_t, contents->pos, contents->length);
-
-  if (unlikely (!info || !pos))
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes) * 2)))
     return false;
 
-  glyph_info_t *new_info = nullptr;
-  uint32_t new_inforef = module_malloc (bytes, (void **) &new_info);
-  glyph_position_t *new_pos = nullptr;
-  uint32_t new_posref = module_malloc (bytes, (void **) &new_pos);
+  uint32_t length = contents->length;
+  uint32_t inforef = contents->info, posref = contents->pos;
 
-  unsigned old_bytes = contents->length * sizeof (glyph_info_t);
-  if (likely (new_inforef))
+  if (unlikely (!HB_ARRAY_APP2NATIVE (glyph_info_t, inforef, length) ||
+		!HB_ARRAY_APP2NATIVE (glyph_position_t, posref, length)))
+    return false;
+
+  uint32_t new_inforef = HB_MODULE_MALLOC (bytes);
+  uint32_t new_posref = HB_MODULE_MALLOC (bytes);
+
+  /* The allocations may have moved the module's memory.  Take every
+   * pointer into it now. */
+  HB_PTR_PARAM_AGAIN (buffer_contents_t, contents);
+  glyph_info_t *info = HB_ARRAY_APP2NATIVE (glyph_info_t, inforef, length);
+  glyph_position_t *pos = HB_ARRAY_APP2NATIVE (glyph_position_t, posref, length);
+  glyph_info_t *new_info = new_inforef ? HB_ARRAY_APP2NATIVE (glyph_info_t, new_inforef, size) : nullptr;
+  glyph_position_t *new_pos = new_posref ? HB_ARRAY_APP2NATIVE (glyph_position_t, new_posref, size) : nullptr;
+
+  if (unlikely (!contents || !info || !pos || !new_info || !new_pos))
   {
-    hb_memcpy (new_info, info, old_bytes);
-    module_free (contents->info);
-    contents->info = new_inforef;
-  }
-  if (likely (new_posref))
-  {
-    hb_memcpy (new_pos, pos, old_bytes);
-    module_free (contents->pos);
-    contents->pos = new_posref;
+    HB_MODULE_FREE (new_inforef);
+    HB_MODULE_FREE (new_posref);
+    return false;
   }
 
-  if (likely (new_info && new_pos))
-  {
-    contents->length = size;
-    return true;
-  }
+  unsigned old_bytes = length * sizeof (glyph_info_t);
+  hb_memcpy (new_info, info, old_bytes);
+  hb_memcpy (new_pos, pos, old_bytes);
+  contents->info = new_inforef;
+  contents->pos = new_posref;
+  contents->length = size;
 
-  return false;
+  /* Last: nothing of the module's is ours to touch after these. */
+  HB_MODULE_FREE (inforef);
+  HB_MODULE_FREE (posref);
+
+  return true;
 }
 
 HB_WASM_API (void, buffer_contents_free) (HB_WASM_EXEC_ENV
 					  ptr_d(buffer_contents_t, contents))
 {
   HB_PTR_PARAM (buffer_contents_t, contents);
-  if (unlikely (!contents))
+  if (unlikely (!contents || !HB_WASM_CHARGE (0)))
     return;
 
-  module_free (contents->info);
-  module_free (contents->pos);
-
+  uint32_t info = contents->info, pos = contents->pos;
   contents->info = nullref;
   contents->pos = nullref;
   contents->length = 0;
+
+  /* Last: the contents are not ours to write after these. */
+  HB_MODULE_FREE (info);
+  HB_MODULE_FREE (pos);
 }
 
 HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
@@ -106,6 +116,10 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
   HB_REF2OBJ (buffer);
   HB_PTR_PARAM (buffer_contents_t, contents);
   if (unlikely (!contents))
+    return false;
+
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (buffer->len) *
+				 (sizeof (hb_glyph_info_t) + sizeof (hb_glyph_position_t)))))
     return false;
 
   if (buffer->have_output)
@@ -134,13 +148,26 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (contents->info);
-  module_free (contents->pos);
+  uint32_t old_info = contents->info, old_pos = contents->pos;
+  HB_MODULE_FREE (old_info);
+  HB_MODULE_FREE (old_pos);
+
+  unsigned bytes = length * sizeof (hb_glyph_info_t);
+  uint32_t info = HB_MODULE_DUP (buffer->info, bytes);
+  uint32_t pos = HB_MODULE_DUP (buffer->pos, bytes);
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (buffer_contents_t, contents);
+  if (unlikely (!contents))
+  {
+    HB_MODULE_FREE (info);
+    HB_MODULE_FREE (pos);
+    return false;
+  }
 
   contents->length = length;
-  unsigned bytes = length * sizeof (hb_glyph_info_t);
-  contents->info = wasm_runtime_module_dup_data (module_inst, (const char *) buffer->info, bytes);
-  contents->pos = wasm_runtime_module_dup_data (module_inst, (const char *) buffer->pos, bytes);
+  contents->info = info;
+  contents->pos = pos;
 
   if (length && (!contents->info || !contents->pos))
   {
@@ -169,6 +196,9 @@ HB_WASM_API (bool_t, buffer_set_contents) (HB_WASM_EXEC_ENV
   if (unlikely (hb_unsigned_mul_overflows (length, sizeof (buffer->info[0]), &bytes)))
     return false;
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes) * 2)))
+    return false;
+
   glyph_info_t *info = (glyph_info_t *) (validate_app_addr (contents->info, bytes) ? addr_app_to_native (contents->info) : nullptr);
   glyph_position_t *pos = (glyph_position_t *) (validate_app_addr (contents->pos, bytes) ? addr_app_to_native (contents->pos) : nullptr);
   if (unlikely (!info || !pos))
@@ -192,6 +222,9 @@ HB_WASM_API (direction_t, buffer_get_direction) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (buffer);
 
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return DIRECTION_INVALID;
+
   return (direction_t) hb_buffer_get_direction (buffer);
 }
 
@@ -199,6 +232,9 @@ HB_WASM_API (script_t, buffer_get_script) (HB_WASM_EXEC_ENV
 					   ptr_d(buffer_t, buffer))
 {
   HB_REF2OBJ (buffer);
+
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return 0;
 
   return hb_script_to_iso15924_tag (hb_buffer_get_script (buffer));
 }
@@ -208,6 +244,9 @@ HB_WASM_API (void, buffer_reverse) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (buffer);
 
+  if (unlikely (!HB_WASM_CHARGE (buffer->len)))
+    return;
+
   hb_buffer_reverse (buffer);
 }
 
@@ -215,6 +254,9 @@ HB_WASM_API (void, buffer_reverse_clusters) (HB_WASM_EXEC_ENV
 					     ptr_d(buffer_t, buffer))
 {
   HB_REF2OBJ (buffer);
+
+  if (unlikely (!HB_WASM_CHARGE (buffer->len)))
+    return;
 
   hb_buffer_reverse_clusters (buffer);
 }

@@ -43,6 +43,18 @@ HB_WASM_API (ptr_t(face_t), face_create) (HB_WASM_EXEC_ENV
   if (unlikely (!data))
     return nullref;
 
+  if (unlikely (!HB_WASM_CHARGE (4096 + HB_WASM_COST_BYTES (blob->length))))
+    return nullref;
+
+  /* The face keeps a copy of the data, outside the module's own memory.
+   * Count it against the memory the module may use. */
+  auto *plan = HB_WASM_PLAN;
+  if (unlikely (!plan ||
+		plan->face_bytes > plan->max_memory ||
+		blob->length > plan->max_memory - plan->face_bytes))
+    return nullref;
+  plan->face_bytes += blob->length;
+
   hb_blob_t *hb_blob = hb_blob_create(
 				      data,
 				      blob->length,
@@ -76,6 +88,9 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
   unsigned length;
   const char *hb_data = hb_blob_get_data (hb_blob, &length);
 
+  if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (length))))
+    return false;
+
   if (length <= blob->length)
   {
     char *data = HB_ARRAY_APP2NATIVE (char, blob->data, length);
@@ -92,10 +107,20 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (blob->data);
+  uint32_t old_data = blob->data;
+  HB_MODULE_FREE (old_data);
+  uint32_t data = HB_MODULE_DUP (hb_data, length);
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (blob_t, blob);
+  if (unlikely (!blob))
+  {
+    HB_MODULE_FREE (data);
+    return false;
+  }
 
   blob->length = length;
-  blob->data = wasm_runtime_module_dup_data (module_inst, hb_data, length);
+  blob->data = data;
 
   if (blob->length && !blob->data)
   {
@@ -111,12 +136,18 @@ HB_WASM_API (unsigned, face_get_upem) (HB_WASM_EXEC_ENV
 {
   HB_REF2OBJ (face);
 
+  if (unlikely (!HB_WASM_CHARGE (0)))
+    return 0;
+
   return hb_face_get_upem (face);
 }
 
 HB_WASM_API (void, face_destroy) (HB_WASM_EXEC_ENV
 				  ptr_d(face_t, face))
 {
+  if (unlikely (!HB_WASM_CHARGE (256)))
+    return;
+
   auto *plan = HB_WASM_PLAN;
   if (likely (plan))
     plan->destroy_ref (faceptr, hb_wasm_ref_type_face);

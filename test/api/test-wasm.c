@@ -310,12 +310,144 @@ test_wasm_start_function (void)
    * got nothing for it. */
   hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
   hb_buffer_guess_segment_properties (buffer);
+#ifdef HB_TEST_WASM_BUDGET
+  /* With the limits, a module that the runtime runs by itself is not
+   * run at all. */
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+#else
   g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
+#endif
 
   hb_buffer_destroy (buffer);
   hb_font_destroy (font);
   hb_face_destroy (face);
 }
+
+static hb_bool_t
+shapes (const char *font_file)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_face_t *face = hb_test_open_font_file (font_file);
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer = hb_buffer_create ();
+  hb_bool_t ret;
+
+  hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  ret = hb_shape_full (font, buffer, NULL, 0, shapers);
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+  return ret;
+}
+
+static void
+test_wasm_refused_modules (void)
+{
+  /* A module may import a function that nothing provides, as long as
+   * it does not call it.  Modules made with wasm-bindgen do. */
+  g_assert_true (shapes ("fonts/wasm-import.ttf"));
+
+  /* Each of these modules has the runtime run something that we cannot
+   * limit: a function of the runtime's own C library, the module's own
+   * allocator, a start function.  With the limits they are not run.
+   * A runtime built without a C library does not provide the first,
+   * and the module's call to it fails. */
+#ifdef HB_TEST_WASM_BUDGET
+  g_assert_false (shapes ("fonts/wasm-import-libc.ttf"));
+  g_assert_false (shapes ("fonts/wasm-allocator.ttf"));
+  g_assert_false (shapes ("fonts/wasm-start-section.ttf"));
+#else
+  g_assert_true (shapes ("fonts/wasm-allocator.ttf"));
+  g_assert_true (shapes ("fonts/wasm-start-section.ttf"));
+#endif
+}
+
+static void
+test_wasm_module_allocator (void)
+{
+  /* These modules export malloc() and free(), which the runtime then
+   * runs for what we allocate in the module. */
+#ifdef HB_TEST_WASM_BUDGET
+  g_assert_false (shapes ("fonts/wasm-allocator-grow.ttf"));
+  g_assert_false (shapes ("fonts/wasm-allocator-reenter.ttf"));
+#else
+  /* One enlarges the module's memory at every allocation, which can
+   * move it, and checks what we wrote into it after. */
+  g_assert_true (shapes ("fonts/wasm-allocator-grow.ttf"));
+
+  /* The other calls back into us from its allocator, in the middle of
+   * our copying the buffer, and is stopped. */
+  g_assert_false (shapes ("fonts/wasm-allocator-reenter.ttf"));
+#endif
+}
+
+#ifdef HB_TEST_WASM_BUDGET
+
+static void
+test_wasm_memory_limit (void)
+{
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = shape_text (font, "h");
+
+  /* The module asked for 256MiB in steps and was refused before that. */
+  g_assert_cmpuint (value (buffer, 1), >, 0);
+  g_assert_cmpuint (value (buffer, 1), <, 4096);
+  hb_buffer_destroy (buffer);
+
+  /* It made faces of 4MiB of data until it was refused that too. */
+  buffer = shape_text (font, "i");
+  g_assert_cmpuint (value (buffer, 0), >, 0);
+  g_assert_cmpuint (value (buffer, 0), <, 64);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+static void
+test_wasm_instruction_limit (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = hb_buffer_create ();
+
+  /* The module runs more than it may, and is stopped. */
+  hb_buffer_add_utf8 (buffer, "j", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  hb_buffer_destroy (buffer);
+
+  /* The font works again right after. */
+  buffer = shape_text (font, "abc");
+  g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 6);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+static void
+test_wasm_host_work_limit (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *font = open_font ();
+  hb_buffer_t *buffer = hb_buffer_create ();
+
+  /* The module stays within its instructions, and is stopped for what
+   * it has us do. */
+  hb_buffer_add_utf8 (buffer, "k", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  hb_buffer_destroy (buffer);
+
+  buffer = shape_text (font, "abc");
+  g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 6);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+}
+
+#endif
 
 int
 main (int argc, char **argv)
@@ -329,6 +461,13 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_handle_limit);
   hb_test_add (test_wasm_destroy);
   hb_test_add (test_wasm_start_function);
+  hb_test_add (test_wasm_refused_modules);
+  hb_test_add (test_wasm_module_allocator);
+#ifdef HB_TEST_WASM_BUDGET
+  hb_test_add (test_wasm_memory_limit);
+  hb_test_add (test_wasm_instruction_limit);
+  hb_test_add (test_wasm_host_work_limit);
+#endif
 
   return hb_test_run ();
 }

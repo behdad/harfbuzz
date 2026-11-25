@@ -26,6 +26,49 @@ saturate_sub (int32_t a, int32_t b)
 void debugprint1 (char *s, int32_t);
 void debugprint2 (char *s, int32_t, int32_t);
 
+/* The C library writes to file descriptors through three WASI calls,
+ * and would import them.  Define them here instead, so that the module
+ * imports nothing but HarfBuzz's own functions: when HarfBuzz limits
+ * what a module can do, it does not run one that imports more.  What
+ * is written goes nowhere. */
+extern "C" {
+
+struct ciovec_t
+{
+  const void *buf;
+  size_t len;
+};
+
+int32_t
+__imported_wasi_snapshot_preview1_fd_write (int32_t fd,
+					    const ciovec_t *iovs,
+					    size_t iovs_len,
+					    size_t *nwritten)
+{
+  size_t n = 0;
+  for (size_t i = 0; i < iovs_len; i++)
+    n += iovs[i].len;
+  *nwritten = n;
+  return 0;
+}
+
+int32_t
+__imported_wasi_snapshot_preview1_fd_close (int32_t fd)
+{
+  return 0;
+}
+
+int32_t
+__imported_wasi_snapshot_preview1_fd_seek (int32_t fd,
+					   int64_t offset,
+					   int32_t whence,
+					   uint64_t *newoffset)
+{
+  return 70; /* ESPIPE */
+}
+
+}
+
 static const void *copy_table (const void *data, unsigned int tag, size_t *len)
 {
   face_t *face = (face_t *) data;

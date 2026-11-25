@@ -35,13 +35,15 @@ HB_WASM_API (void, blob_free) (HB_WASM_EXEC_ENV
 			       ptr_d(blob_t, blob))
 {
   HB_PTR_PARAM (blob_t, blob);
-  if (unlikely (!blob))
+  if (unlikely (!blob || !HB_WASM_CHARGE (0)))
     return;
 
-  module_free (blob->data);
-
+  uint32_t data = blob->data;
   blob->data = nullref;
   blob->length = 0;
+
+  /* Last: the blob is not ours to write after this. */
+  HB_MODULE_FREE (data);
 }
 
 
