@@ -1,10 +1,12 @@
-/* The Wasm modules of wasm-leak.ttf and wasm-keep.ttf, which test-wasm.c
- * shapes with.  generate-wasm-api-font.py compiles them.
+/* The Wasm modules of wasm-leak.ttf, wasm-leak-own.ttf and
+ * wasm-keep.ttf, which test-wasm.c shapes with.
+ * generate-wasm-api-font.py compiles them.
  *
  * The first frees nothing of what Harfbuzz copies for it.  Modules made
  * with the Rust toolkit did not for years, and are in fonts.  The second
- * frees all but a table, which it copies once and holds on to, as a
- * module may. */
+ * does the same and has Harfbuzz free arrays of its own besides.  The
+ * third frees all but a table, which it copies once and holds on to, as
+ * a module may. */
 
 #define HB_WASM_INTERFACE(ret_t, name) \
   __attribute__((export_name(#name))) ret_t name
@@ -53,6 +55,18 @@ shape (void *shape_plan, font_t *font, buffer_t *buffer,
 #ifdef KEEP
   glyph_outline_free (&outline);
   buffer_contents_free (&contents);
+#endif
+
+#ifdef OWN
+  /* As many arrays of our own for Harfbuzz to free as it allocated for
+   * us in this call. */
+  static glyph_info_t own_info[1];
+  static glyph_position_t own_pos[1];
+  for (unsigned i = 0; i < 2; i++)
+  {
+    buffer_contents_t own = {1, own_info, own_pos};
+    buffer_contents_free (&own);
+  }
 #endif
 
   return ret;

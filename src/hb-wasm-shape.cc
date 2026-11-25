@@ -665,7 +665,7 @@ retry:
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
   unsigned num_refs = plan->refs.length;
-  unsigned num_allocations = plan->num_allocations;
+  unsigned num_allocated = plan->num_allocated;
 
   /* What the faces a module creates hold counts against its memory, from
    * when it last owned nothing. */
@@ -705,6 +705,10 @@ retry:
   arguments[3].of.i32 = featuresptr;
   arguments[4].kind = WASM_I32;
   arguments[4].of.i32 = num_features;
+
+  /* The features are ours to free; what counts is what the call has us
+   * allocate. */
+  num_allocated = plan->num_allocated;
 
   limit_instructions (plan, exec_env, buffer->len);
   ret = wasm_runtime_call_wasm_a (exec_env, func,
@@ -766,9 +770,9 @@ fail:
    * for it.  A module is to free that when done with it, and many free
    * nothing: every one made with the Rust toolkit as it was until
    * lately.  Their calls would start to fail after a while, most with
-   * the buffer already changed, so not to be made again.  We look only
-   * after a call that left more in the instance than it found there. */
-  if (keep && plan->num_allocations > num_allocations &&
+   * the buffer already changed, so not to be made again.  We look
+   * after any call that had us allocate in the instance. */
+  if (keep && plan->num_allocated != num_allocated &&
       unlikely (!has_room (plan)))
   {
     DEBUG_MSG (WASM, module_inst, "The module's instance is filling up; not keeping it.");
