@@ -22,6 +22,8 @@ Tokens are numbers that only mean something to the module instance they were giv
 
 What Harfbuzz copies for a module, such as a buffer's contents, a table or an outline, it allocates inside the module's instance, in room that is 2MiB plus the size of the font. The module is to hand each copy back with the matching `_free` function when it is done with it, and may hold on to one from call to call. An instance that is left with less than 1MiB of that room after a `shape` call is not used for another one either.
 
+A `shape` call that fails does not get its instance used again. If that instance had served earlier calls, and the module has not changed the buffer, the call is made once more, in a new instance; otherwise the shaping fails.
+
 The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
 
 * The `buffer_contents_t` structure

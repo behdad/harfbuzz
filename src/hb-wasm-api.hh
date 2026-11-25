@@ -204,6 +204,8 @@ struct hb_wasm_shape_plan_t
   /* How many blocks of memory we have allocated in the instance and
    * not freed: what the module had us copy and has not handed back. */
   unsigned num_allocations;
+  /* Whether the instance has served a shape() call. */
+  bool used;
 };
 
 /* The plan of the instance a host function was called from.  There is

@@ -723,6 +723,10 @@ retry:
       DEBUG_MSG (WASM, font, "Shape failed but buffer is not in Unicode; failing...");
       goto fail;
     }
+    /* The call is made again for what earlier calls may have left in
+     * the instance.  A new instance would only do the same again. */
+    if (!plan->used)
+      goto fail;
 #ifndef HB_NO_WASM_BUDGET
     /* A module that ran out of instructions would do so again.  This is
      * the runtime's message; if it ever changes, we retry needlessly. */
@@ -751,6 +755,8 @@ retry:
 fail:
     ret = false;
   }
+
+  plan->used = true;
 
   /* A module that still owns an object expects it to be there in the
    * next call.  It gets a fresh instance instead, and starts over. */

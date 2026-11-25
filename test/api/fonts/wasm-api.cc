@@ -247,6 +247,14 @@ shape (void *shape_plan,
       values[0] = length != 0;
       return answer (buffer, values, 1);
     }
+
+    case 'l':
+    {
+      /* Fails, with the buffer as it came, after asking for something
+       * that the test counts. */
+      font_get_glyph_h_advance (font, 1);
+      return false;
+    }
   }
 
   return false;

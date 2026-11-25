@@ -410,6 +410,66 @@ test_wasm_module_allocator (void)
 #endif
 }
 
+static int advances_asked;
+
+static hb_position_t
+count_h_advance (hb_font_t *font, void *font_data HB_UNUSED,
+		 hb_codepoint_t glyph, void *user_data HB_UNUSED)
+{
+  advances_asked++;
+  return hb_font_get_glyph_h_advance (hb_font_get_parent (font), glyph);
+}
+
+static void
+test_wasm_failed_call (void)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_font_t *parent = open_font ();
+  hb_font_t *font = hb_font_create_sub_font (parent);
+  hb_font_funcs_t *funcs = hb_font_funcs_create ();
+  hb_buffer_t *buffer;
+
+  hb_font_funcs_set_glyph_h_advance_func (funcs, count_h_advance, NULL, NULL);
+  hb_font_set_funcs (font, funcs, NULL, NULL);
+  hb_font_funcs_destroy (funcs);
+
+  /* The module asks for an advance and fails, with the buffer as it
+   * came.  Its instance is new, and a new one would only fail again:
+   * the module is called once. */
+  buffer = hb_buffer_create ();
+  hb_buffer_add_utf8 (buffer, "l", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (advances_asked, ==, 1);
+  hb_buffer_destroy (buffer);
+
+  /* The next call is to a new instance, which is then kept: the module
+   * counts the calls to its instance. */
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 2);
+  hb_buffer_destroy (buffer);
+
+  /* A call that fails in an instance that has served others is made
+   * once more, in a new instance. */
+  buffer = hb_buffer_create ();
+  hb_buffer_add_utf8 (buffer, "l", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
+  g_assert_cmpint (advances_asked, ==, 3);
+  hb_buffer_destroy (buffer);
+
+  /* Neither of the two is kept. */
+  buffer = shape_text (font, "f");
+  g_assert_cmpuint (value (buffer, 0), ==, 1);
+  hb_buffer_destroy (buffer);
+
+  hb_font_destroy (font);
+  hb_font_destroy (parent);
+}
+
 /* Shapes a long text many times with one font, and returns the most
  * calls that one instance of the module got. */
 static unsigned
@@ -549,6 +609,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_instance_kept);
   hb_test_add (test_wasm_module_allocator);
   hb_test_add (test_wasm_module_that_frees_nothing);
+  hb_test_add (test_wasm_failed_call);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);
