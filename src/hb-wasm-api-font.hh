@@ -240,17 +240,28 @@ HB_WASM_API (bool_t, font_copy_glyph_outline) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (outline->points);
-  module_free (outline->contours);
+  uint32_t old_points = outline->points, old_contours = outline->contours;
+  HB_MODULE_FREE (old_points);
+  HB_MODULE_FREE (old_contours);
+
+  uint32_t points = HB_MODULE_DUP (hb_outline.points.arrayZ,
+				   hb_outline.points.get_size ());
+  uint32_t contours = HB_MODULE_DUP (hb_outline.contours.arrayZ,
+				     hb_outline.contours.get_size ());
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (glyph_outline_t, outline);
+  if (unlikely (!outline))
+  {
+    HB_MODULE_FREE (points);
+    HB_MODULE_FREE (contours);
+    return false;
+  }
 
   outline->n_points = hb_outline.points.length;
-  outline->points = wasm_runtime_module_dup_data (module_inst,
-						  (const char *) hb_outline.points.arrayZ,
-						  hb_outline.points.get_size ());
+  outline->points = points;
   outline->n_contours = hb_outline.contours.length;
-  outline->contours = wasm_runtime_module_dup_data (module_inst,
-						    (const char *) hb_outline.contours.arrayZ,
-						    hb_outline.contours.get_size ());
+  outline->contours = contours;
 
   if ((outline->n_points && !outline->points) ||
       (outline->n_contours && !outline->contours))
@@ -269,13 +280,15 @@ HB_WASM_API (void, glyph_outline_free) (HB_WASM_EXEC_ENV
   if (unlikely (!outline || !HB_WASM_CHARGE (0)))
     return;
 
-  module_free (outline->points);
-  module_free (outline->contours);
-
+  uint32_t points = outline->points, contours = outline->contours;
   outline->n_points = 0;
   outline->points = nullref;
   outline->n_contours = 0;
   outline->contours = nullref;
+
+  /* Last: the outline is not ours to write after these. */
+  HB_MODULE_FREE (points);
+  HB_MODULE_FREE (contours);
 }
 
 HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
@@ -306,12 +319,24 @@ HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (coords->coords);
+  uint32_t old_coords = coords->coords;
+  HB_MODULE_FREE (old_coords);
+
+  unsigned bytes = our_length * sizeof (int);
+  uint32_t copy = HB_MODULE_DUP (our_coords, bytes);
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (coords_t, coords);
+  if (unlikely (!coords))
+  {
+    HB_MODULE_FREE (copy);
+    return false;
+  }
+
   coords->length = our_length;
-	unsigned bytes = our_length * sizeof (int);
-  coords->coords = wasm_runtime_module_dup_data (module_inst, (const char *) our_coords, bytes);
-	if (our_length && !coords->coords)
-	  {
+  coords->coords = copy;
+  if (our_length && !coords->coords)
+  {
     coords->length = 0;
     return false;
   }

@@ -647,9 +647,8 @@ retry:
   wasm_val_t arguments[5];
 
   uint32_t featuresptr;
-  featuresptr = num_features ? wasm_runtime_module_dup_data (module_inst,
-							     (const char *) features,
-							     num_features * sizeof (features[0])) : 0;
+  featuresptr = num_features ? HB_MODULE_DUP (features,
+					      num_features * sizeof (features[0])) : 0;
 
   results[0].kind = WASM_I32;
   arguments[0].kind = WASM_I32;
@@ -669,7 +668,7 @@ retry:
 				  ARRAY_LENGTH (arguments), arguments);
 
   if (num_features)
-    wasm_runtime_module_free (module_inst, featuresptr);
+    HB_MODULE_FREE (featuresptr);
 
   if (unlikely (!ret || !results[0].of.i32))
   {

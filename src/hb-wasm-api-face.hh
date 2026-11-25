@@ -107,10 +107,20 @@ HB_WASM_API (bool_t, face_copy_table) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (blob->data);
+  uint32_t old_data = blob->data;
+  HB_MODULE_FREE (old_data);
+  uint32_t data = HB_MODULE_DUP (hb_data, length);
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (blob_t, blob);
+  if (unlikely (!blob))
+  {
+    HB_MODULE_FREE (data);
+    return false;
+  }
 
   blob->length = length;
-  blob->data = wasm_runtime_module_dup_data (module_inst, hb_data, length);
+  blob->data = data;
 
   if (blob->length && !blob->data)
   {

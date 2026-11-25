@@ -198,6 +198,9 @@ struct hb_wasm_shape_plan_t
   uint64_t face_bytes;
   /* What host functions may still do for the module in this call. */
   uint64_t work_left;
+  /* Not zero while the runtime may be running the module's own
+   * allocator for us, in the middle of one of our functions. */
+  unsigned allocating;
 };
 
 /* The plan of the instance a host function was called from.  There is
@@ -221,25 +224,96 @@ _hb_wasm_obj2ref (hb_wasm_shape_plan_t *plan,
 #define HB_WASM_COST_CALL 64
 #define HB_WASM_COST_BYTES(n) ((uint64_t) (n) / 8)
 
-/* An instance that is still being made has no allowance yet: a module
- * that calls us from its start function is stopped there. */
+/* Every host function passes through here.  It stops a module that
+ * calls us from its own allocator, which the runtime runs in the middle
+ * of our functions: see HB_MODULE_MALLOC.  And with the limits it takes
+ * the charge; an instance that is still being made has no allowance
+ * yet, so a module that calls us from its start function is stopped
+ * there. */
 static inline bool
 _hb_wasm_charge (wasm_module_inst_t inst,
 		 hb_wasm_shape_plan_t *plan,
-		 uint64_t cost)
+		 uint64_t cost HB_UNUSED)
 {
+  if (unlikely (plan && plan->allocating))
+  {
+    wasm_runtime_set_exception (inst, "called from the module's allocator");
+    return false;
+  }
+#ifndef HB_NO_WASM_BUDGET
   if (likely (plan))
     return plan->charge (cost);
   wasm_runtime_set_exception (inst, "host work limit exceeded");
   return false;
+#else
+  return true;
+#endif
 }
 
-#ifndef HB_NO_WASM_BUDGET
 #define HB_WASM_CHARGE_MORE(cost) _hb_wasm_charge (module_inst, HB_WASM_PLAN, cost)
-#else
-#define HB_WASM_CHARGE_MORE(cost) true
-#endif
 #define HB_WASM_CHARGE(cost) HB_WASM_CHARGE_MORE (HB_WASM_COST_CALL + (uint64_t) (cost))
+
+/* Memory for a module, in the module.  The runtime has a heap of its
+ * own in an instance for these, unless the module exports malloc() and
+ * free(): then it runs those, in the middle of our function.  Two
+ * things follow from that.
+ *
+ * The module's allocator can grow the module's memory, and a runtime
+ * without hardware bounds checks moves the memory when it grows.  So a
+ * native pointer into a module's memory is good until the next of
+ * these calls, and no longer: take it again after, with
+ * HB_PTR_PARAM_AGAIN or HB_ARRAY_APP2NATIVE.
+ *
+ * And the module's allocator can call our functions, while one of them
+ * is half way through with a buffer or a font.  The plan counts the
+ * calls in progress, and _hb_wasm_charge() refuses.
+ *
+ * An instance that is still being made has no plan to count in, and
+ * gets no memory from us. */
+static inline uint32_t
+_hb_wasm_module_malloc (wasm_module_inst_t inst,
+			hb_wasm_shape_plan_t *plan,
+			uint32_t size)
+{
+  if (unlikely (!plan))
+    return nullref;
+  plan->allocating++;
+  uint32_t ref = (uint32_t) wasm_runtime_module_malloc (inst, size, nullptr);
+  plan->allocating--;
+  return ref;
+}
+
+static inline uint32_t
+_hb_wasm_module_dup (wasm_module_inst_t inst,
+		     hb_wasm_shape_plan_t *plan,
+		     const char *data, uint32_t size)
+{
+  if (unlikely (!plan))
+    return nullref;
+  plan->allocating++;
+  uint32_t ref = (uint32_t) wasm_runtime_module_dup_data (inst, data, size);
+  plan->allocating--;
+  return ref;
+}
+
+static inline void
+_hb_wasm_module_free (wasm_module_inst_t inst,
+		      hb_wasm_shape_plan_t *plan,
+		      uint32_t ref)
+{
+  if (unlikely (!plan))
+    return;
+  plan->allocating++;
+  wasm_runtime_module_free (inst, ref);
+  plan->allocating--;
+}
+
+#define HB_MODULE_MALLOC(size) \
+  _hb_wasm_module_malloc (module_inst, HB_WASM_PLAN, size)
+#define HB_MODULE_DUP(data, size) \
+  _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size)
+#define HB_MODULE_FREE(ref) \
+  _hb_wasm_module_free (module_inst, HB_WASM_PLAN, ref)
 
 #define HB_REF2OBJ(obj) \
   hb_##obj##_t *obj = nullptr; \
@@ -275,6 +349,16 @@ _hb_wasm_charge (wasm_module_inst_t inst,
 #define HB_PTR_PARAM(type, name) \
   type *name = nullptr; \
   HB_STMT_START { \
+    if (likely (wasm_runtime_validate_app_addr (module_inst, \
+						name##ptr, sizeof (type)))) \
+      name = (type *) wasm_runtime_addr_app_to_native (module_inst, name##ptr); \
+  } HB_STMT_END
+
+/* Takes a pointer parameter again, after a call that may have moved
+ * the module's memory. */
+#define HB_PTR_PARAM_AGAIN(type, name) \
+  HB_STMT_START { \
+    name = nullptr; \
     if (likely (wasm_runtime_validate_app_addr (module_inst, \
 						name##ptr, sizeof (type)))) \
       name = (type *) wasm_runtime_addr_app_to_native (module_inst, name##ptr); \

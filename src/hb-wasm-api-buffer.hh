@@ -53,38 +53,43 @@ HB_WASM_API (bool_t, buffer_contents_realloc) (HB_WASM_EXEC_ENV
   if (unlikely (!HB_WASM_CHARGE (HB_WASM_COST_BYTES (bytes) * 2)))
     return false;
 
-  glyph_info_t *info = HB_ARRAY_APP2NATIVE (glyph_info_t, contents->info, contents->length);
-  glyph_position_t *pos = HB_ARRAY_APP2NATIVE (glyph_position_t, contents->pos, contents->length);
+  uint32_t length = contents->length;
+  uint32_t inforef = contents->info, posref = contents->pos;
 
-  if (unlikely (!info || !pos))
+  if (unlikely (!HB_ARRAY_APP2NATIVE (glyph_info_t, inforef, length) ||
+		!HB_ARRAY_APP2NATIVE (glyph_position_t, posref, length)))
     return false;
 
-  glyph_info_t *new_info = nullptr;
-  uint32_t new_inforef = module_malloc (bytes, (void **) &new_info);
-  glyph_position_t *new_pos = nullptr;
-  uint32_t new_posref = module_malloc (bytes, (void **) &new_pos);
+  uint32_t new_inforef = HB_MODULE_MALLOC (bytes);
+  uint32_t new_posref = HB_MODULE_MALLOC (bytes);
 
-  unsigned old_bytes = contents->length * sizeof (glyph_info_t);
-  if (likely (new_inforef))
-  {
-    hb_memcpy (new_info, info, old_bytes);
-    module_free (contents->info);
-    contents->info = new_inforef;
-  }
-  if (likely (new_posref))
-  {
-    hb_memcpy (new_pos, pos, old_bytes);
-    module_free (contents->pos);
-    contents->pos = new_posref;
-  }
+  /* The allocations may have moved the module's memory.  Take every
+   * pointer into it now. */
+  HB_PTR_PARAM_AGAIN (buffer_contents_t, contents);
+  glyph_info_t *info = HB_ARRAY_APP2NATIVE (glyph_info_t, inforef, length);
+  glyph_position_t *pos = HB_ARRAY_APP2NATIVE (glyph_position_t, posref, length);
+  glyph_info_t *new_info = new_inforef ? HB_ARRAY_APP2NATIVE (glyph_info_t, new_inforef, size) : nullptr;
+  glyph_position_t *new_pos = new_posref ? HB_ARRAY_APP2NATIVE (glyph_position_t, new_posref, size) : nullptr;
 
-  if (likely (new_info && new_pos))
+  if (unlikely (!contents || !info || !pos || !new_info || !new_pos))
   {
-    contents->length = size;
-    return true;
+    HB_MODULE_FREE (new_inforef);
+    HB_MODULE_FREE (new_posref);
+    return false;
   }
 
-  return false;
+  unsigned old_bytes = length * sizeof (glyph_info_t);
+  hb_memcpy (new_info, info, old_bytes);
+  hb_memcpy (new_pos, pos, old_bytes);
+  contents->info = new_inforef;
+  contents->pos = new_posref;
+  contents->length = size;
+
+  /* Last: nothing of the module's is ours to touch after these. */
+  HB_MODULE_FREE (inforef);
+  HB_MODULE_FREE (posref);
+
+  return true;
 }
 
 HB_WASM_API (void, buffer_contents_free) (HB_WASM_EXEC_ENV
@@ -94,12 +99,14 @@ HB_WASM_API (void, buffer_contents_free) (HB_WASM_EXEC_ENV
   if (unlikely (!contents || !HB_WASM_CHARGE (0)))
     return;
 
-  module_free (contents->info);
-  module_free (contents->pos);
-
+  uint32_t info = contents->info, pos = contents->pos;
   contents->info = nullref;
   contents->pos = nullref;
   contents->length = 0;
+
+  /* Last: the contents are not ours to write after these. */
+  HB_MODULE_FREE (info);
+  HB_MODULE_FREE (pos);
 }
 
 HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
@@ -141,13 +148,26 @@ HB_WASM_API (bool_t, buffer_copy_contents) (HB_WASM_EXEC_ENV
     return true;
   }
 
-  module_free (contents->info);
-  module_free (contents->pos);
+  uint32_t old_info = contents->info, old_pos = contents->pos;
+  HB_MODULE_FREE (old_info);
+  HB_MODULE_FREE (old_pos);
+
+  unsigned bytes = length * sizeof (hb_glyph_info_t);
+  uint32_t info = HB_MODULE_DUP (buffer->info, bytes);
+  uint32_t pos = HB_MODULE_DUP (buffer->pos, bytes);
+
+  /* Those may have moved the module's memory. */
+  HB_PTR_PARAM_AGAIN (buffer_contents_t, contents);
+  if (unlikely (!contents))
+  {
+    HB_MODULE_FREE (info);
+    HB_MODULE_FREE (pos);
+    return false;
+  }
 
   contents->length = length;
-  unsigned bytes = length * sizeof (hb_glyph_info_t);
-  contents->info = wasm_runtime_module_dup_data (module_inst, (const char *) buffer->info, bytes);
-  contents->pos = wasm_runtime_module_dup_data (module_inst, (const char *) buffer->pos, bytes);
+  contents->info = info;
+  contents->pos = pos;
 
   if (length && (!contents->info || !contents->pos))
   {

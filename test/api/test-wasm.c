@@ -364,6 +364,25 @@ test_wasm_refused_modules (void)
 #endif
 }
 
+static void
+test_wasm_module_allocator (void)
+{
+  /* These modules export malloc() and free(), which the runtime then
+   * runs for what we allocate in the module. */
+#ifdef HB_TEST_WASM_BUDGET
+  g_assert_false (shapes ("fonts/wasm-allocator-grow.ttf"));
+  g_assert_false (shapes ("fonts/wasm-allocator-reenter.ttf"));
+#else
+  /* One enlarges the module's memory at every allocation, which can
+   * move it, and checks what we wrote into it after. */
+  g_assert_true (shapes ("fonts/wasm-allocator-grow.ttf"));
+
+  /* The other calls back into us from its allocator, in the middle of
+   * our copying the buffer, and is stopped. */
+  g_assert_false (shapes ("fonts/wasm-allocator-reenter.ttf"));
+#endif
+}
+
 #ifdef HB_TEST_WASM_BUDGET
 
 static void
@@ -443,6 +462,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_destroy);
   hb_test_add (test_wasm_start_function);
   hb_test_add (test_wasm_refused_modules);
+  hb_test_add (test_wasm_module_allocator);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);
