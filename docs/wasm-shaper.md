@@ -422,7 +422,13 @@ The code in a font is not trusted, so Harfbuzz limits what it can use. A `shape`
 
 The numbers are in `src/hb-limits.hh` and can be changed when building.
 
-To build without the instruction and memory limits, define `HB_NO_WASM_BUDGET`, for example with `-Dcpp_args=-DHB_NO_WASM_BUDGET`. Harfbuzz then builds against a runtime without instruction metering too, and lets the runtime use a JIT compiler if it has one, which is several times faster. Only do this if every font you load is one you trust.
+These limits cover the calls Harfbuzz makes into a module and the functions above. Some modules have the runtime run more than that, and Harfbuzz does not run them at all; their fonts are shaped as if they had no `Wasm` table. That is a module which
+
+* imports a function that the runtime provides and that is not one of the ones above: the runtime's own C library and WASI functions. An import that nothing provides, such as the JavaScript glue that `wasm-bindgen` adds, is fine as long as the module does not call it;
+* has a start function, or exports `_initialize`, `__post_instantiate` or `__wasm_call_ctors`, which the runtime runs when it makes an instance;
+* exports both `malloc` and `free` (or AssemblyScript's `__new` with `__release` or `__unpin`), which the runtime would then run for the memory Harfbuzz allocates in the module.
+
+To build without these limits, and run such modules too, define `HB_NO_WASM_BUDGET`, for example with `-Dcpp_args=-DHB_NO_WASM_BUDGET`. Harfbuzz then builds against a runtime without instruction metering too, and lets the runtime use a JIT compiler if it has one, which is several times faster. Only do this if every font you load is one you trust.
 
 ## How to write a shaping engine in Rust
 

@@ -311,8 +311,8 @@ test_wasm_start_function (void)
   hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
   hb_buffer_guess_segment_properties (buffer);
 #ifdef HB_TEST_WASM_BUDGET
-  /* With the limits it has no allowance yet for what it asks of us,
-   * and is stopped there. */
+  /* With the limits, a module that the runtime runs by itself is not
+   * run at all. */
   g_assert_false (hb_shape_full (font, buffer, NULL, 0, shapers));
 #else
   g_assert_true (hb_shape_full (font, buffer, NULL, 0, shapers));
@@ -321,6 +321,47 @@ test_wasm_start_function (void)
   hb_buffer_destroy (buffer);
   hb_font_destroy (font);
   hb_face_destroy (face);
+}
+
+static hb_bool_t
+shapes (const char *font_file)
+{
+  const char *shapers[] = {"wasm", NULL};
+  hb_face_t *face = hb_test_open_font_file (font_file);
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer = hb_buffer_create ();
+  hb_bool_t ret;
+
+  hb_buffer_add_utf8 (buffer, "abc", -1, 0, -1);
+  hb_buffer_guess_segment_properties (buffer);
+  ret = hb_shape_full (font, buffer, NULL, 0, shapers);
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+  return ret;
+}
+
+static void
+test_wasm_refused_modules (void)
+{
+  /* A module may import a function that nothing provides, as long as
+   * it does not call it.  Modules made with wasm-bindgen do. */
+  g_assert_true (shapes ("fonts/wasm-import.ttf"));
+
+  /* Each of these modules has the runtime run something that we cannot
+   * limit: a function of the runtime's own C library, the module's own
+   * allocator, a start function.  With the limits they are not run.
+   * A runtime built without a C library does not provide the first,
+   * and the module's call to it fails. */
+#ifdef HB_TEST_WASM_BUDGET
+  g_assert_false (shapes ("fonts/wasm-import-libc.ttf"));
+  g_assert_false (shapes ("fonts/wasm-allocator.ttf"));
+  g_assert_false (shapes ("fonts/wasm-start-section.ttf"));
+#else
+  g_assert_true (shapes ("fonts/wasm-allocator.ttf"));
+  g_assert_true (shapes ("fonts/wasm-start-section.ttf"));
+#endif
 }
 
 #ifdef HB_TEST_WASM_BUDGET
@@ -401,6 +442,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_handle_limit);
   hb_test_add (test_wasm_destroy);
   hb_test_add (test_wasm_start_function);
+  hb_test_add (test_wasm_refused_modules);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);

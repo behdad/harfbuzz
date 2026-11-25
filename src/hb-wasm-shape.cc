@@ -166,6 +166,114 @@ _hb_wasm_init ()
   return true;
 }
 
+#ifndef HB_NO_WASM_BUDGET
+
+/* Whether the module has a start section: a function that the runtime
+ * runs when it makes an instance. */
+static bool
+_hb_wasm_module_has_start (const uint8_t *data, unsigned length)
+{
+  /* The magic number and the version, then the sections: an id, a size
+   * in LEB128, and that many bytes.  The runtime has accepted the
+   * module, so this only fails safe. */
+  unsigned i = 8;
+  while (i < length)
+  {
+    unsigned id = data[i++];
+    uint32_t size = 0;
+    for (unsigned shift = 0;; shift += 7)
+    {
+      if (unlikely (i >= length || shift > 28))
+	return true;
+      unsigned byte = data[i++];
+      size |= (uint32_t) (byte & 0x7F) << shift;
+      if (!(byte & 0x80))
+	break;
+    }
+    if (id == 8 || unlikely (size > length - i))
+      return true;
+    i += size;
+  }
+  return false;
+}
+
+/* Returns why a module is not to run, or nullptr.
+ *
+ * What we can limit is what a module does in the calls we make into it,
+ * and what our own functions do for it.  A module can have the runtime
+ * run more than that, in three ways:
+ *
+ *   - It imports a function that is not ours and that the runtime
+ *     has for it: a runtime built with its defaults has a C library
+ *     and WASI of its own.  An import that nothing provides is left
+ *     alone; calling it ends the call.  Modules made with wasm-bindgen
+ *     have one, for JavaScript glue that they never call here.
+ *
+ *   - It has a function that the runtime runs when it makes an
+ *     instance: the start function, or one of the three the runtime
+ *     calls by name.
+ *
+ *   - It exports an allocator.  The runtime then leaves the instance
+ *     without a heap of its own, and runs the module's allocator for
+ *     every allocation we make in it.
+ *
+ * The names are those wasm-micro-runtime looks for, as of 2.4.6. */
+static const char *
+_hb_wasm_module_refusal (wasm_module_t wasm_module,
+			 const uint8_t *data, unsigned length)
+{
+  for (int32_t i = 0; i < wasm_runtime_get_import_count (wasm_module); i++)
+  {
+    wasm_import_t import;
+    wasm_runtime_get_import_type (wasm_module, i, &import);
+    if (import.kind != WASM_IMPORT_EXPORT_KIND_FUNC || !import.linked)
+      continue;
+
+    bool ours = false;
+    if (0 == strcmp (import.module_name, "env"))
+      for (unsigned j = 0; j < ARRAY_LENGTH (_hb_wasm_native_symbols); j++)
+	if (0 == strcmp (import.name, _hb_wasm_native_symbols[j].symbol))
+	{
+	  ours = true;
+	  break;
+	}
+    if (!ours)
+      return "imports a function of the runtime's";
+  }
+
+  if (_hb_wasm_module_has_start (data, length))
+    return "has a start function";
+
+  bool has_malloc = false, has_free = false;
+  for (int32_t i = 0; i < wasm_runtime_get_export_count (wasm_module); i++)
+  {
+    wasm_export_t export_type;
+    wasm_runtime_get_export_type (wasm_module, i, &export_type);
+    if (export_type.kind != WASM_IMPORT_EXPORT_KIND_FUNC)
+      continue;
+
+    const char *name = export_type.name;
+    if (0 == strcmp (name, "_initialize") ||
+	0 == strcmp (name, "__post_instantiate") ||
+	0 == strcmp (name, "__wasm_call_ctors"))
+      return "exports a function that the runtime runs by itself";
+
+    if (0 == strcmp (name, "malloc") ||
+	0 == strcmp (name, "__new"))
+      has_malloc = true;
+    if (0 == strcmp (name, "free") ||
+	0 == strcmp (name, "__release") ||
+	0 == strcmp (name, "__unpin"))
+      has_free = true;
+  }
+  if (has_malloc && has_free)
+    return "exports an allocator";
+
+  return nullptr;
+}
+
+#endif
+
 hb_wasm_face_data_t *
 _hb_wasm_shaper_face_data_create (hb_face_t *face)
 {
@@ -201,6 +309,15 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
     return nullptr;
   }
   auto module_guard = hb_make_scope_guard ([&]() { wasm_runtime_unload (wasm_module); });
+
+#ifndef HB_NO_WASM_BUDGET
+  const char *refusal = _hb_wasm_module_refusal (wasm_module, wasm_data, length);
+  if (unlikely (refusal))
+  {
+    DEBUG_MSG (WASM, nullptr, "Not running the font's module: it %s.", refusal);
+    return nullptr;
+  }
+#endif
 
   data = (hb_wasm_face_data_t *) hb_calloc (1, sizeof (hb_wasm_face_data_t));
   if (unlikely (!data))
