@@ -470,6 +470,27 @@ test_wasm_failed_call (void)
   hb_font_destroy (parent);
 }
 
+static void
+test_wasm_coords_free (void)
+{
+  static const int coords[2] = {1 << 14, -(1 << 13)};
+  hb_face_t *face = hb_test_open_font_file ("fonts/wasm-coords.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer;
+
+  hb_face_destroy (face);
+  hb_font_set_var_coords_normalized (font, coords, 2);
+
+  /* The module had the font's coordinates copied and freed them, many
+   * times over, and counted what went wrong. */
+  buffer = shape_text (font, "m");
+  g_assert_cmpuint (value (buffer, 0), ==, 0);
+  g_assert_cmpuint (value (buffer, 1), ==, 2);
+
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+}
+
 /* Shapes a long text many times with one font, and returns the most
  * calls that one instance of the module got. */
 static unsigned
@@ -610,6 +631,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_module_allocator);
   hb_test_add (test_wasm_module_that_frees_nothing);
   hb_test_add (test_wasm_failed_call);
+  hb_test_add (test_wasm_coords_free);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);
   hb_test_add (test_wasm_instruction_limit);

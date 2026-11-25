@@ -291,6 +291,21 @@ HB_WASM_API (void, glyph_outline_free) (HB_WASM_EXEC_ENV
   HB_MODULE_FREE (contours);
 }
 
+HB_WASM_API (void, coords_free) (HB_WASM_EXEC_ENV
+				 ptr_d(coords_t, coords))
+{
+  HB_PTR_PARAM (coords_t, coords);
+  if (unlikely (!coords || !HB_WASM_CHARGE (0)))
+    return;
+
+  uint32_t ref = coords->coords;
+  coords->length = 0;
+  coords->coords = nullref;
+
+  /* Last: the coords are not ours to write after this. */
+  HB_MODULE_FREE (ref);
+}
+
 HB_WASM_API (bool_t, font_copy_coords) (HB_WASM_EXEC_ENV
 					  ptr_d(font_t, font),
 					  ptr_d(coords_t, coords))

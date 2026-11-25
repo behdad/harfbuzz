@@ -300,9 +300,12 @@ typedef struct
 
 bool font_copy_coords(uint32 font_token, &coords_t coords);
 bool font_set_coords(uint32 font_token, &coords_t coords);
+void coords_free(coords_t* coords);
 ```
 
 `font_copy_coords` copies the font's variation coordinates into the given structure; the resulting structure has `length` equal to the number of variation axes, with each member of the `coords` array being a F2DOT14 encoding of the normalized variation value.
+
+`coords_free` frees the memory allocated to a coords structure.
 
 `font_set_coords` sets the font's variation coordinates. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
 
