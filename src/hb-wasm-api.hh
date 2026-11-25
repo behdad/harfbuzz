@@ -201,9 +201,10 @@ struct hb_wasm_shape_plan_t
   /* Not zero while the runtime may be running the module's own
    * allocator for us, in the middle of one of our functions. */
   unsigned allocating;
-  /* How many blocks of memory we have allocated in the instance and
-   * not freed: what the module had us copy and has not handed back. */
-  unsigned num_allocations;
+  /* How many times we have allocated memory in the instance.  What a
+   * module frees is not counted: it can have us free what was never
+   * ours. */
+  unsigned num_allocated;
   /* Whether the instance has served a shape() call. */
   bool used;
 };
@@ -285,7 +286,7 @@ _hb_wasm_module_malloc (wasm_module_inst_t inst,
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_malloc (inst, size, nullptr);
   plan->allocating--;
-  plan->num_allocations += !!ref;
+  plan->num_allocated += !!ref;
   return ref;
 }
 
@@ -299,7 +300,7 @@ _hb_wasm_module_dup (wasm_module_inst_t inst,
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_dup_data (inst, data, size);
   plan->allocating--;
-  plan->num_allocations += !!ref;
+  plan->num_allocated += !!ref;
   return ref;
 }
 
@@ -313,10 +314,6 @@ _hb_wasm_module_free (wasm_module_inst_t inst,
   plan->allocating++;
   wasm_runtime_module_free (inst, ref);
   plan->allocating--;
-  /* A module can have us free what we never allocated, so this is no
-   * more than a hint. */
-  if (ref && plan->num_allocations)
-    plan->num_allocations--;
 }
 
 #define HB_MODULE_MALLOC(size) \

@@ -543,6 +543,12 @@ test_wasm_module_that_frees_nothing (void)
   g_assert_cmpuint (most_calls, >, 4);
   g_assert_cmpuint (most_calls, <, 200);
 
+  /* So is a module that has us free arrays of its own as well, as many
+   * as we allocated for it. */
+  most_calls = shape_repeatedly ("fonts/wasm-leak-own.ttf");
+  g_assert_cmpuint (most_calls, >, 4);
+  g_assert_cmpuint (most_calls, <, 200);
+
   /* A module that holds on to something of ours, and adds nothing to
    * it, keeps its instance. */
   g_assert_cmpuint (shape_repeatedly ("fonts/wasm-keep.ttf"), ==, 200);

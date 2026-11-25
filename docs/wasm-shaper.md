@@ -393,6 +393,8 @@ void debugprint4(
 
 Produces a debugging message in the host shaper's log output; the variants `debugprint1` ... `debugprint4` suffix the message with a comma-separated list of the integer arguments.
 
+These print only in a build of Harfbuzz made for debugging, with `-DHB_DEBUG_WASM=1`, which also has Harfbuzz say why a module was not run or why a call failed. In any other build they do nothing.
+
 ## Enabling the WASM shaper when building Harfbuzz
 
 First, you will need the `wasm-micro-runtime` library installed on your computer. Download `wasm-micro-runtime` from [its GitHub repository](https://github.com/bytecodealliance/wasm-micro-runtime/tree/main); then follow [the instructions for building](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/product-mini/README.md), except run the cmake command from the repository root directory and add the `-DWAMR_BUILD_INSTRUCTION_METERING=1` flag to the `cmake` line. Harfbuzz needs that to limit how long a font's code can run; it is in `wasm-micro-runtime` 2.3.1 and later. Then, install it.
@@ -520,7 +522,7 @@ Congratulations! Our shaper did nothing, but in Rust! Now let's do something - i
 
 * To say hello world, we're going to have to use a native function.
 
-In debugging builds of Harfbuzz, we can print some output from the web assembly module to the host's standard output using the `debug` function. To make this easier, we've got the `harfbuzz-wasm` crate:
+In debugging builds of Harfbuzz (built with `-DHB_DEBUG_WASM=1`), we can print some output from the web assembly module to the host's standard error using the `debug` function. To make this easier, we've got the `harfbuzz-wasm` crate:
 
 ```rust
 use harfbuzz_wasm::debug;
