@@ -13,7 +13,7 @@ jobs:
     name: Tango shaping comparison
     runs-on: ubuntu-latest
     steps:
-      - uses: harfbuzz/benchmark-harf@e358e6341e3f92d58f7e5f798da22329cfac9e1e
+      - uses: harfbuzz/benchmark-harf@4b0804c824b4cc2d8e334d7959a754d8a7c429ce
         with:
           engine: hb
           baseline: ${{ github.event.pull_request.base.sha }}
