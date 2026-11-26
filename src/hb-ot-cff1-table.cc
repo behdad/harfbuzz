@@ -619,6 +619,9 @@ _cff1_charstring_may_end_in_seac (const hb_ubytes_t &str,
                                   bool subrs_may_end_in_seac,
                                   int64_t *budget)
 {
+  /* The interpreter fails without budget; do not read the charstring either. */
+  if (budget && unlikely (*budget <= 0)) return false;
+
   if (subrs_may_end_in_seac)
   {
     /* A subroutine can terminate the glyph with endchar, even when the glyph
@@ -669,9 +672,6 @@ bool OT::cff1::accelerator_subset_t::get_seac_components (hb_codepoint_t glyph, 
   if (unlikely (!is_valid () || (glyph >= num_glyphs))) return false;
   /* seac uses StandardEncoding names and is not defined in CID-keyed fonts. */
   if (is_CID ()) return false;
-
-  /* The interpreter fails without budget; do not read the charstring either. */
-  if (budget && unlikely (*budget <= 0)) return false;
 
   unsigned int fd = fdSelect->get_fd (glyph);
   const hb_ubytes_t str = (*charStrings)[glyph];

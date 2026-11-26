@@ -1374,6 +1374,20 @@ struct cff1
       }
     }
 
+    hb_codepoint_t glyph_to_sid (hb_codepoint_t glyph,
+				 code_pair_t *cache = nullptr) const
+    {
+      if (cache && unlikely (cache->glyph != HB_CODEPOINT_INVALID &&
+			     glyph < cache->glyph && glyph < num_glyphs))
+      {
+	/* A backward lookup cannot use the cached charset range. */
+	if (const hb_codepoint_t *table = get_glyph_to_sid_table ())
+	  return table[glyph];
+      }
+
+      return lookup_sid (glyph, cache);
+    }
+
     glyph_to_sid_map_t *create_glyph_to_sid_map () const
     {
       if (charset != &Null (Charset))
@@ -1389,24 +1403,11 @@ struct cff1
 	return nullptr;
     }
 
-    hb_codepoint_t glyph_to_sid (hb_codepoint_t glyph,
-				 code_pair_t *cache = nullptr) const
+    hb_codepoint_t lookup_sid (hb_codepoint_t glyph,
+			       code_pair_t *cache) const
     {
       if (charset != &Null (Charset))
-      {
-	/* The cache only helps callers that ask for glyphs in increasing
-	 * order; on a step back Charset::get_sid() walks the ranges from
-	 * the start again.  The subsetter asks in arbitrary order under a
-	 * custom glyph mapping, so use the direct table then. */
-	if (cache && unlikely (glyph < cache->glyph &&
-			       cache->glyph != HB_CODEPOINT_INVALID &&
-			       glyph < num_glyphs))
-	{
-	  const hb_codepoint_t *table = get_glyph_to_sid_table ();
-	  if (table) return table[glyph];
-	}
 	return charset->get_sid (glyph, num_glyphs, cache);
-      }
       else
       {
 	hb_codepoint_t sid = 0;
