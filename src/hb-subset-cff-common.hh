@@ -41,6 +41,7 @@ template <typename ACC>
 static inline unsigned
 subset_get_fd (const ACC &acc, hb_codepoint_t glyph)
 {
+  if (!acc.fdSelect) return 0;
   return likely (glyph < acc.num_glyphs) ? acc.fdSelect->get_fd (glyph) : 0;
 }
 
@@ -1409,6 +1410,12 @@ struct subr_subsetter_t
   void populate_subset_accelerator () const
   {
     if (!plan->inprogress_accelerator) return;
+    /* Only fill in the accelerator being built, and only once.  If acc has
+     * one already, the programs were taken from it and none were parsed
+     * here: the table is being subset again with a larger buffer.  If the
+     * source face was itself preprocessed, acc is the accelerator of that
+     * face, shared with its other users, and not ours to replace. */
+    if (plan->accelerator || acc.cff_accelerator) return;
 
     compact_parsed_subrs ();
 

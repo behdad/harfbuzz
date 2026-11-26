@@ -1661,6 +1661,56 @@ test_subset_cff2_get_charstring_data_lifetime (void)
   hb_blob_destroy (cs0);
 }
 
+static void
+test_subset_cff_get_charstring_data_then_extents (void)
+{
+  /* The raw outline functions create the face's CFF accelerator from
+   * libharfbuzz-subset.  libharfbuzz, which has its own Null objects,
+   * must still see that this font has no FDSelect. */
+  hb_face_t *face = hb_test_open_font_file ("fonts/SourceSansPro-Regular.otf");
+  hb_face_t *fresh_face = hb_test_open_font_file ("fonts/SourceSansPro-Regular.otf");
+  hb_font_t *font = hb_font_create (face);
+  hb_font_t *fresh_font = hb_font_create (fresh_face);
+  hb_codepoint_t gid = 700; /* Beyond the size of the Null pool. */
+  hb_glyph_extents_t extents, expected;
+
+  hb_blob_t *cs = hb_subset_cff_get_charstring_data (face, gid);
+  g_assert_cmpuint (hb_blob_get_length (cs), >, 0);
+  hb_blob_destroy (cs);
+
+  g_assert_true (hb_font_get_glyph_extents (fresh_font, gid, &expected));
+  g_assert_true (hb_font_get_glyph_extents (font, gid, &extents));
+  g_assert_cmpint (extents.x_bearing, ==, expected.x_bearing);
+  g_assert_cmpint (extents.y_bearing, ==, expected.y_bearing);
+  g_assert_cmpint (extents.width, ==, expected.width);
+  g_assert_cmpint (extents.height, ==, expected.height);
+
+  hb_font_destroy (font);
+  hb_font_destroy (fresh_font);
+  hb_face_destroy (face);
+  hb_face_destroy (fresh_face);
+}
+
+static void
+test_subset_cff_get_charstring_data_then_glyph_name (void)
+{
+  /* Same, for a font with a predefined charset: no Charset either. */
+  hb_face_t *face = hb_test_open_font_file ("fonts/cff1_expert.otf");
+  hb_font_t *font = hb_font_create (face);
+  hb_codepoint_t gid = 5;
+  char name[64];
+
+  hb_blob_t *cs = hb_subset_cff_get_charstring_data (face, gid);
+  g_assert_cmpuint (hb_blob_get_length (cs), >, 0);
+  hb_blob_destroy (cs);
+
+  g_assert_true (hb_font_get_glyph_name (font, gid, name, sizeof (name)));
+  g_assert_cmpstr (name, ==, "parenrightsuperior");
+
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+}
+
 #endif
 
 #ifdef HB_EXPERIMENTAL_API
@@ -1909,6 +1959,8 @@ main (int argc, char **argv)
   hb_test_add (test_subset_cff2_get_charstring_data_no_cff);
   hb_test_add (test_subset_cff2_get_charstring_data_invalid_cff2);
   hb_test_add (test_subset_cff2_get_charstring_data_lifetime);
+  hb_test_add (test_subset_cff_get_charstring_data_then_extents);
+  hb_test_add (test_subset_cff_get_charstring_data_then_glyph_name);
   #endif
 
   return hb_test_run();
