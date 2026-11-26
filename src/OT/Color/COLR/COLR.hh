@@ -36,6 +36,7 @@
 #include "../../../hb-paint-bounded.hh"
 #include "../../../hb-paint-extents.hh"
 #include "../../../hb-depend-data.hh"
+#include "../../../hb-set-builder.hh"
 
 #include "../../../hb-ot-dual.hh"
 #include "../CPAL/CPAL.hh"
@@ -213,16 +214,18 @@ struct hb_colrv1_closure_context_t :
     if (unlikely (hb_unsigned_add_overflows (first_var_idx, num_idxes - 1, &last) ||
 		  last == VarIdx::NO_VARIATION))
       last = VarIdx::NO_VARIATION - 1;
-    variation_indices->add_range (first_var_idx, last);
+    for (unsigned idx = first_var_idx; idx <= last; idx++)
+      variation_indices.add (idx);
   }
 
   public:
   const void *base;
-  hb_set_t visited_paint;
+  hb_set_t visited_offsets;
+  hb_set_builder_t<> visited_paint {visited_offsets};
   hb_set_t *glyphs;
   hb_set_t *layer_indices;
   hb_set_t *palette_indices;
-  hb_set_t *variation_indices;
+  hb_set_builder_t<> variation_indices;
   unsigned num_var_idxes;
   unsigned nesting_level_left;
 
@@ -237,7 +240,7 @@ struct hb_colrv1_closure_context_t :
                           glyphs (glyphs_),
                           layer_indices (layer_indices_),
                           palette_indices (palette_indices_),
-                          variation_indices (variation_indices_),
+                          variation_indices (*variation_indices_),
                           num_var_idxes (num_var_idxes_),
                           nesting_level_left (nesting_level_left_)
   {}
@@ -298,7 +301,8 @@ struct hb_colrv1_depend_context_t :
   public:
   const COLR *colr;
   hb_depend_data_builder_t *depend_data;
-  hb_set_t visited_paint;
+  hb_set_t visited_offsets;
+  hb_set_builder_t<> visited_paint {visited_offsets};
   int max_ops;
   unsigned nesting_level_left;
   hb_codepoint_t source_gid;
@@ -2815,6 +2819,8 @@ struct COLR
     for (const ClipRecord &clip_record : cliplist.clips.iter())
       clip_record.closurev1 (&c, &cliplist);
 
+    if (unlikely (!c.variation_indices.flush ())) return;
+
     // if a DeltaSetIndexMap is included, collected variation indices are
     // actually delta set indices, we need to map them into variation indices
     if (has_delta_set_index_map ())
@@ -2822,8 +2828,10 @@ struct COLR
       const DeltaSetIndexMap &var_idx_map = this+varIdxMap;
       delta_set_indices->set (*variation_indices);
       variation_indices->clear ();
+      hb_set_builder_t<> mapped (*variation_indices);
       for (unsigned delta_set_idx : *delta_set_indices)
-        variation_indices->add (var_idx_map.map (delta_set_idx));
+        mapped.add (var_idx_map.map (delta_set_idx));
+      mapped.flush ();
     }
   }
 

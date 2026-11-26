@@ -4889,7 +4889,8 @@ struct Condition
     return_trace (c->end_recursion (this->dispatch (c)));
   }
 
-  bool collect_var_indices (hb_set_t *var_indices,
+  template <typename Set>
+  bool collect_var_indices (Set *var_indices,
 			    unsigned depth = HB_MAX_NESTING_LEVEL,
                             hb_hashmap_t<uintptr_t, hb_pair_t<unsigned, int>> *condition_values = nullptr,
 			    int64_t *budget = nullptr /* IN/OUT */) const;
@@ -4970,8 +4971,9 @@ struct ConditionList
   DEFINE_SIZE_ARRAY (4, conditions);
 };
 
+template <typename Set>
 inline bool
-Condition::collect_var_indices (hb_set_t *var_indices, unsigned depth,
+Condition::collect_var_indices (Set *var_indices, unsigned depth,
                                hb_hashmap_t<uintptr_t, hb_pair_t<unsigned, int>> *condition_values,
 			       int64_t *budget) const
 {

@@ -2,6 +2,7 @@
 #define OT_VAR_VARC_VARC_SUBSET_HH
 
 #include "VARC.hh"
+#include "../../../hb-set-builder.hh"
 
 namespace OT {
 
@@ -57,6 +58,7 @@ struct varc_subset_plan_t
 
   bool collect_indices ()
   {
+    hb_set_builder_t<> variations (var_indices);
     for (unsigned old_index : old_indices)
     {
       hb_ubytes_t remaining = source_records[old_index];
@@ -82,10 +84,10 @@ struct varc_subset_plan_t
 	}
 	if ((component.flags & (unsigned) VarComponent::flags_t::AXIS_VALUES_HAVE_VARIATION) &&
 	    component.axis_values_var_idx != VarIdx::NO_VARIATION)
-	  var_indices.add (component.axis_values_var_idx);
+	  variations.add (component.axis_values_var_idx);
 	if ((component.flags & (unsigned) VarComponent::flags_t::TRANSFORM_HAS_VARIATION) &&
 	    component.transform_var_idx != VarIdx::NO_VARIATION)
-	  var_indices.add (component.transform_var_idx);
+	  variations.add (component.transform_var_idx);
 
 	remaining = remaining.sub_array (component.size);
       }
@@ -97,11 +99,11 @@ struct varc_subset_plan_t
 
     for (hb_codepoint_t condition_index : condition_indices)
       if (unlikely (!source_conditions[condition_index].collect_var_indices (
-			&var_indices, HB_MAX_NESTING_LEVEL, nullptr,
+			&variations, HB_MAX_NESTING_LEVEL, nullptr,
 			&subset_context->budget_remaining)))
 	return false;
 
-    return true;
+    return variations.flush ();
   }
 
   bool create_maps ()
