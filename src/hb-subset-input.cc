@@ -737,13 +737,23 @@ hb_subset_axis_range_to_string (hb_subset_input_t *input,
 
 #ifdef HB_EXPERIMENTAL_API
 static void
-_append_arg (hb_vector_t<char> &sb, const char *arg)
+_append_arg (hb_vector_t<char> &sb, hb_bytes_t arg)
 {
   if (sb.in_error ()) return;
   if (sb.length)
     sb.push (' ');
-  unsigned len = strlen (arg);
-  sb.extend (hb_bytes_t (arg, len));
+  sb.extend (arg);
+}
+static void
+_append_arg (hb_vector_t<char> &sb, const hb_vector_t<char> &arg)
+{
+  /* An argument that could not be built in full fails the whole string. */
+  if (unlikely (arg.in_error ()))
+  {
+    sb.ensure_error ();
+    return;
+  }
+  _append_arg (sb, arg.as_bytes ());
 }
 static void
 _format_number_set (const hb_set_t *set, hb_vector_t<char> &out, unsigned base = 10)
@@ -836,27 +846,29 @@ _format_set_arg (const hb_set_t *set,
   {
     hb_set_t *excluded = hb_set_copy (set);
     hb_set_invert (excluded);
+    if (unlikely (excluded->in_error ()))
+      sb.ensure_error ();
 
     hb_vector_t<char> opt;
     opt.extend (hb_bytes_t ("--", 2));
     opt.extend (hb_bytes_t (opt_name, strlen (opt_name)));
     opt.extend (hb_bytes_t ("=*", 2));
-    opt.push ('\0');
-    if (opt.arrayZ) _append_arg (sb, opt.arrayZ);
+    _append_arg (sb, opt);
 
     if (!hb_set_is_empty (excluded))
     {
       hb_vector_t<char> formatted;
       formatter (excluded, formatted);
-      if (formatted.length)
+      if (unlikely (formatted.in_error ()))
+        sb.ensure_error ();
+      else if (formatted.length)
       {
         hb_vector_t<char> opt2;
         opt2.extend (hb_bytes_t ("--", 2));
         opt2.extend (hb_bytes_t (opt_name, strlen (opt_name)));
         opt2.extend (hb_bytes_t ("-=", 2));
         opt2.extend (formatted.as_array ());
-        opt2.push ('\0');
-        if (opt2.arrayZ) _append_arg (sb, opt2.arrayZ);
+        _append_arg (sb, opt2);
       }
     }
     hb_set_destroy (excluded);
@@ -867,22 +879,22 @@ _format_set_arg (const hb_set_t *set,
     opt.extend (hb_bytes_t ("--", 2));
     opt.extend (hb_bytes_t (opt_name, strlen (opt_name)));
     opt.extend (hb_bytes_t ("-=*", 3));
-    opt.push ('\0');
-    if (opt.arrayZ) _append_arg (sb, opt.arrayZ);
+    _append_arg (sb, opt);
   }
   else
   {
     hb_vector_t<char> formatted;
     formatter (set, formatted);
-    if (formatted.length)
+    if (unlikely (formatted.in_error ()))
+      sb.ensure_error ();
+    else if (formatted.length)
     {
       hb_vector_t<char> opt;
       opt.extend (hb_bytes_t ("--", 2));
       opt.extend (hb_bytes_t (opt_name, strlen (opt_name)));
       opt.extend (hb_bytes_t ("=", 1));
       opt.extend (formatted.as_array ());
-      opt.push ('\0');
-      if (opt.arrayZ) _append_arg (sb, opt.arrayZ);
+      _append_arg (sb, opt);
     }
   }
 }
@@ -915,6 +927,7 @@ _format_glyph_map_arg (const hb_map_t &glyph_map,
 
   hb_set_t keys;
   hb_map_keys (&glyph_map, &keys);
+  if (unlikely (keys.in_error ())) return false;
   hb_vector_t<char> pairs;
   bool first = true;
   for (hb_codepoint_t key : keys)
@@ -928,13 +941,13 @@ _format_glyph_map_arg (const hb_map_t &glyph_map,
     if (unlikely (len < 0 || (size_t) len >= sizeof (buf))) return false;
     pairs.extend (hb_bytes_t (buf, len));
   }
+  if (unlikely (pairs.in_error ())) return false;
   if (pairs.length)
   {
     hb_vector_t<char> opt;
     opt.extend (hb_bytes_t ("--gid-map=", 10));
     opt.extend (pairs.as_array ());
-    opt.push ('\0');
-    if (opt.arrayZ) _append_arg (sb, opt.arrayZ);
+    _append_arg (sb, opt);
   }
   return true;
 }
@@ -949,6 +962,7 @@ _format_axes_location_arg (const hb_hashmap_t<hb_tag_t, Triple> &axes_location,
   hb_vector_t<hb_tag_t> axis_tags;
   for (auto tag : axes_location.keys ())
     axis_tags.push (tag);
+  if (unlikely (axis_tags.in_error ())) return false;
   axis_tags.qsort ([] (const hb_tag_t &a, const hb_tag_t &b) { return a < b ? -1 : a > b ? 1 : 0; });
 
   hb_vector_t<char> specs;
@@ -962,6 +976,7 @@ _format_axes_location_arg (const hb_hashmap_t<hb_tag_t, Triple> &axes_location,
 
     hb_vector_t<char> tag_buf;
     _format_tag (tag, tag_buf);
+    if (unlikely (tag_buf.in_error ())) return false;
 
     char buf[128];
     int len;
@@ -981,13 +996,13 @@ _format_axes_location_arg (const hb_hashmap_t<hb_tag_t, Triple> &axes_location,
     if (unlikely (len < 0 || (size_t) len >= sizeof (buf))) return false;
     specs.extend (hb_bytes_t (buf, len));
   }
+  if (unlikely (specs.in_error ())) return false;
   if (specs.length)
   {
     hb_vector_t<char> opt;
     opt.extend (hb_bytes_t ("--variations=", 13));
     opt.extend (specs.as_array ());
-    opt.push ('\0');
-    if (opt.arrayZ) _append_arg (sb, opt.arrayZ);
+    _append_arg (sb, opt);
   }
   return true;
 }
@@ -1050,7 +1065,7 @@ hb_subset_input_to_string_or_fail (hb_subset_input_t *input)
     {
       char buf[36];
       snprintf (buf, sizeof (buf), "--%s", fo.option);
-      _append_arg (sb, buf);
+      _append_arg (sb, hb_bytes_t (buf, strlen (buf)));
     }
   }
 
