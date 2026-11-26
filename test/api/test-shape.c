@@ -252,6 +252,50 @@ test_shape_clusters (void)
 }
 
 static void
+test_shape_feature_ranges (void)
+{
+  const hb_tag_t smcp = HB_TAG ('s','m','c','p');
+  const hb_feature_t features[] = {
+    {smcp, 1, 4, HB_FEATURE_GLOBAL_END},
+    {smcp, 0, 2, 8},
+    {smcp, 1, 0, 3},
+    {smcp, 0, 8, 8},
+    {smcp, 0, 12, 2},
+  };
+  const unsigned clusters[][8] = {
+    {0, 2, 4, 6, 8, 10, 12, UINT_MAX},
+    {UINT_MAX, 12, 10, 8, 6, 4, 2, 0},
+    {0, 2, 8, 6, 4, 10, 12, UINT_MAX},
+    {8, 8, 8, 8, 8, 8, 8, 8},
+  };
+  hb_face_t *face = hb_test_open_font_file ("fonts/SourceSansPro-Regular.otf");
+  hb_font_t *font = hb_font_create (face);
+  const hb_codepoint_t a = 28, smallcap = 1217; /* a and A.sc in Source Sans Pro */
+
+  const char *shapers[] = {"ot", NULL};
+  for (unsigned j = 0; j < G_N_ELEMENTS (clusters); j++)
+  {
+    hb_buffer_t *buffer = hb_buffer_create ();
+    hb_buffer_set_content_type (buffer, HB_BUFFER_CONTENT_TYPE_UNICODE);
+    for (unsigned i = 0; i < 96; i++)
+      hb_buffer_add (buffer, 'a', clusters[j][i / 12]);
+    hb_buffer_guess_segment_properties (buffer);
+    g_assert_true (hb_shape_full (font, buffer, features, G_N_ELEMENTS (features), shapers));
+    g_assert_cmpuint (hb_buffer_get_length (buffer), ==, 96);
+    hb_glyph_info_t *info = hb_buffer_get_glyph_infos (buffer, NULL);
+    for (unsigned i = 0; i < 96; i++)
+    {
+      unsigned c = clusters[j][i / 12];
+      hb_bool_t enabled = c < 3 || (8 <= c && c < UINT_MAX);
+      g_assert_cmpuint (info[i].codepoint, ==, enabled ? smallcap : a);
+    }
+    hb_buffer_destroy (buffer);
+  }
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+}
+
+static void
 test_shape_overlong_mark_cluster (void)
 {
   hb_face_t *face = hb_test_open_font_file ("fonts/NotoSans-Bold.ttf");
@@ -758,6 +802,7 @@ main (int argc, char **argv)
   hb_test_add (test_shape_not_found);
   hb_test_add (test_shape_not_found_variation_selector);
   hb_test_add (test_shape_clusters);
+  hb_test_add (test_shape_feature_ranges);
   hb_test_add (test_shape_overlong_mark_cluster);
   hb_test_add (test_shape_overlong_cluster_remerge);
   hb_test_add (test_shape_harfrust_budget);

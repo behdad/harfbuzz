@@ -528,11 +528,23 @@ hb_buffer_t::move_to (unsigned int i)
 }
 
 
+hb_buffer_t::cluster_order_t
+hb_buffer_t::get_cluster_order () const
+{
+  bool descending = len && info[0].cluster > info[len - 1].cluster;
+  for (unsigned i = 1; i < len; i++)
+    if (descending ? info[i - 1].cluster < info[i].cluster
+		   : info[i - 1].cluster > info[i].cluster)
+      return cluster_order_t::UNSORTED;
+  return descending ? cluster_order_t::DESCENDING : cluster_order_t::ASCENDING;
+}
+
 void
 hb_buffer_t::set_masks (hb_mask_t    value,
 			hb_mask_t    mask,
 			unsigned int cluster_start,
-			unsigned int cluster_end)
+			unsigned int cluster_end,
+			cluster_order_t order)
 {
   if (!mask)
     return;
@@ -546,16 +558,34 @@ hb_buffer_t::set_masks (hb_mask_t    value,
 
   unsigned int count = len;
 
-  if (cluster_start == 0 && cluster_end == (unsigned int) -1)
+  unsigned start = 0, end = count;
+  if (!(cluster_start == HB_FEATURE_GLOBAL_START && cluster_end == HB_FEATURE_GLOBAL_END))
   {
-    for (unsigned int i = 0; i < count; i++)
-      info[i].mask = (info[i].mask & not_mask) | value;
-    return;
+    if (order == cluster_order_t::UNSORTED)
+    {
+      for (unsigned int i = 0; i < count; i++)
+	if (cluster_start <= info[i].cluster && info[i].cluster < cluster_end)
+	  info[i].mask = (info[i].mask & not_mask) | value;
+      return;
+    }
+
+    bool descending = order == cluster_order_t::DESCENDING;
+    if (descending)
+      hb_swap (cluster_start, cluster_end);
+
+    /* Find the first cluster >= the key when ascending, or < the key
+     * when descending.  Never return equality, even for repeated clusters. */
+    auto cmp = [] (const void *key, const void *item, bool descending)
+    {
+      unsigned cluster = ((const hb_glyph_info_t *) item)->cluster;
+      return (cluster < * (const unsigned *) key) != descending ? 1 : -1;
+    };
+    hb_bsearch_impl (&start, cluster_start, info, count, sizeof (*info), +cmp, descending);
+    hb_bsearch_impl (&end, cluster_end, info, count, sizeof (*info), +cmp, descending);
   }
 
-  for (unsigned int i = 0; i < count; i++)
-    if (cluster_start <= info[i].cluster && info[i].cluster < cluster_end)
-      info[i].mask = (info[i].mask & not_mask) | value;
+  for (unsigned i = start; i < end; i++)
+    info[i].mask = (info[i].mask & not_mask) | value;
 }
 
 void

@@ -756,6 +756,9 @@ hb_ot_shape_setup_masks (const hb_ot_shape_context_t *c)
   if (c->plan->shaper->setup_masks)
     c->plan->shaper->setup_masks (c->plan, buffer, c->font);
 
+  /* Only pay for a cluster-order scan when it can save repeated buffer scans. */
+  bool check_order = c->num_user_features >= 4 && buffer->len >= 64;
+  auto order = hb_buffer_t::cluster_order_t::UNSORTED;
   for (unsigned int i = 0; i < c->num_user_features; i++)
   {
     const hb_feature_t *feature = &c->user_features[i];
@@ -764,8 +767,15 @@ hb_ot_shape_setup_masks (const hb_ot_shape_context_t *c)
       bool is_global;
       hb_mask_t mask = map->get_mask (feature->tag, &shift, &is_global);
       /* A later global request supersedes earlier ranges for this tag. */
-      if (!is_global)
-	buffer->set_masks (feature->value << shift, mask, feature->start, feature->end);
+      if (!is_global && mask)
+      {
+	if (check_order)
+	{
+	  order = buffer->get_cluster_order ();
+	  check_order = false;
+	}
+	buffer->set_masks (feature->value << shift, mask, feature->start, feature->end, order);
+      }
     }
   }
 }
