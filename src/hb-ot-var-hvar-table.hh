@@ -119,7 +119,7 @@ struct index_map_subset_plan_t
     output_map.fini ();
   }
 
-  void remap (const DeltaSetIndexMap *input_map,
+  bool remap (const DeltaSetIndexMap *input_map,
 	      const hb_inc_bimap_t &outer_map,
 	      const hb_vector_t<hb_inc_bimap_t> &inner_maps,
 	      const hb_subset_plan_t *plan)
@@ -134,7 +134,7 @@ struct index_map_subset_plan_t
       if (bit_count > inner_bit_count) inner_bit_count = bit_count;
     }
 
-    if (unlikely (!output_map.resize (map_count))) return;
+    if (unlikely (max_inners.in_error () || !output_map.resize (map_count))) return false;
     for (const auto &_ : plan->new_to_old_gid_list)
     {
       hb_codepoint_t new_gid = _.first;
@@ -150,6 +150,7 @@ struct index_map_subset_plan_t
 
       output_map.arrayZ[new_gid] = (new_outer << 16) | (inner_maps[outer][v & 0xFFFF]);
     }
+    return true;
   }
 
   bool remap_after_instantiation (const hb_subset_plan_t *plan,
@@ -222,7 +223,7 @@ struct hvarvvar_subset_plan_t
   hvarvvar_subset_plan_t() : inner_maps (), index_map_plans () {}
   ~hvarvvar_subset_plan_t() { fini (); }
 
-  void init (const hb_array_t<const DeltaSetIndexMap *> &index_maps,
+  bool init (const hb_array_t<const DeltaSetIndexMap *> &index_maps,
 	     const ItemVariationStore &_var_store,
 	     const hb_subset_plan_t *plan)
   {
@@ -236,7 +237,9 @@ struct hvarvvar_subset_plan_t
 
     inner_maps.resize (var_store->get_sub_table_count ());
 
-    if (unlikely (!index_map_plans.length || !inner_sets.length || !inner_maps.length)) return;
+    if (unlikely (index_map_plans.in_error () || inner_sets.in_error () || inner_maps.in_error ()))
+      return false;
+    if (unlikely (!index_map_plans.length || !inner_sets.length || !inner_maps.length)) return true;
 
     bool retain_adv_map = false;
     index_map_plans[0].init (index_maps[0], outer_map, inner_sets, plan, false);
@@ -273,7 +276,10 @@ struct hvarvvar_subset_plan_t
       inner_maps[i].add_set (inner_sets[i]);
 
     for (unsigned int i = 0; i < index_maps.length; i++)
-      index_map_plans[i].remap (index_maps[i], outer_map, inner_maps, plan);
+      if (unlikely (!index_map_plans[i].remap (index_maps[i], outer_map, inner_maps, plan)))
+	return false;
+
+    return true;
   }
 
   /* remap */
@@ -380,7 +386,9 @@ struct HVARVVAR
 				index_maps;
 
     ((T*)this)->listup_index_maps (index_maps);
-    hvar_plan.init (index_maps.as_array (), this+varStore, c->plan);
+    /* A plain false would only drop the table; fail the subset instead. */
+    if (unlikely (!hvar_plan.init (index_maps.as_array (), this+varStore, c->plan)))
+      return_trace (c->serializer->check_success (false));
 
     T *out = c->serializer->allocate_min<T> ();
     if (unlikely (!out)) return_trace (false);
