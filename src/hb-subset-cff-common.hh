@@ -893,7 +893,7 @@ struct subr_subsetter_t
     if (cff_accelerator) {
       // If we are not dropping hinting then charstrings are not modified so we can
       // just use a reference to the cached copies.
-      cached_charstrings.resize_exact (plan->num_output_glyphs ());
+      cached_charstrings.resize_exact (plan->new_to_old_gid_list.length);
       parsed_global_subrs = &cff_accelerator->parsed_global_subrs;
       parsed_local_subrs = &cff_accelerator->parsed_local_subrs;
     } else {
@@ -910,7 +910,10 @@ struct subr_subsetter_t
 		    (uint64_t) acc.get_blob ()->length * 256))
 	return false;
 
-      parsed_charstrings.resize_exact (plan->num_output_glyphs ());
+      /* One per retained glyph, in the order of new_to_old_gid_list, not one
+       * per output glyph ID: retained GIDs or a glyph mapping can leave most
+       * of the output IDs unused. */
+      parsed_charstrings.resize_exact (plan->new_to_old_gid_list.length);
       parsed_global_subrs_storage.resize_exact (acc.globalSubrs->count);
 
       if (unlikely (!parsed_local_subrs_storage.resize (fd_count))) return false;
@@ -943,10 +946,9 @@ struct subr_subsetter_t
     int64_t *budget = plan->cff_budget (get_subset_budget (acc.get_blob ()));
 
     /* phase 1 & 2 */
-    for (auto _ : plan->new_to_old_gid_list)
+    for (unsigned i = 0; i < plan->new_to_old_gid_list.length; i++)
     {
-      hb_codepoint_t new_glyph = _.first;
-      hb_codepoint_t old_glyph = _.second;
+      hb_codepoint_t old_glyph = plan->new_to_old_gid_list.arrayZ[i].second;
 
       const hb_ubytes_t str = (*acc.charStrings)[old_glyph];
       unsigned int fd = subset_get_fd (acc, old_glyph);
@@ -958,9 +960,9 @@ struct subr_subsetter_t
         // parsed string already exists in accelerator, copy it and move
         // on.
         if (cached_charstrings)
-          cached_charstrings[new_glyph] = &cff_accelerator->parsed_charstrings[old_glyph];
+          cached_charstrings[i] = &cff_accelerator->parsed_charstrings[old_glyph];
         else
-          parsed_charstrings[new_glyph] = cff_accelerator->parsed_charstrings[old_glyph];
+          parsed_charstrings[i] = cff_accelerator->parsed_charstrings[old_glyph];
 
         continue;
       }
@@ -968,8 +970,8 @@ struct subr_subsetter_t
       ENV env (str, acc, fd);
       cs_interpreter_t<ENV, OPSET, subr_subset_param_t> interp (env);
 
-      parsed_charstrings[new_glyph].alloc (str.length);
-      subr_subset_param_t  param (&parsed_charstrings[new_glyph],
+      parsed_charstrings[i].alloc (str.length);
+      subr_subset_param_t  param (&parsed_charstrings[i],
                                   &parsed_global_subrs_storage,
                                   &parsed_local_subrs_storage[fd],
                                   &closures.global_closure,
@@ -981,12 +983,12 @@ struct subr_subsetter_t
         return false;
 
       /* complete parsed string esp. copy CFF1 width or CFF2 vsindex to the parsed charstring for encoding */
-      SUBSETTER::complete_parsed_str (interp.env, param, parsed_charstrings[new_glyph]);
+      SUBSETTER::complete_parsed_str (interp.env, param, parsed_charstrings[i]);
 
       /* mark hint ops and arguments for drop */
       if ((plan->flags & HB_SUBSET_FLAGS_NO_HINTING) || plan->inprogress_accelerator)
       {
-	subr_subset_param_t  param (&parsed_charstrings[new_glyph],
+	subr_subset_param_t  param (&parsed_charstrings[i],
 				    &parsed_global_subrs_storage,
 				    &parsed_local_subrs_storage[fd],
 				    &closures.global_closure,
@@ -994,11 +996,11 @@ struct subr_subsetter_t
 				    plan->flags & HB_SUBSET_FLAGS_NO_HINTING);
 
 	drop_hints_param_t  drop (budget);
-	if (drop_hints_in_str (parsed_charstrings[new_glyph], param, drop))
+	if (drop_hints_in_str (parsed_charstrings[i], param, drop))
 	{
-	  parsed_charstrings[new_glyph].set_hint_dropped ();
+	  parsed_charstrings[i].set_hint_dropped ();
 	  if (drop.vsindex_dropped)
-	    parsed_charstrings[new_glyph].set_vsindex_dropped ();
+	    parsed_charstrings[i].set_vsindex_dropped ();
 	}
 	if (unlikely (drop.in_error ()))
 	  return false;
@@ -1013,7 +1015,7 @@ struct subr_subsetter_t
        * Not needed when tokens were coalesced during parsing.
        */
       if (!coalesce)
-	parsed_charstrings[new_glyph].compact ();
+	parsed_charstrings[i].compact ();
     }
 
     /* Since parsed strings were loaded from accelerator, we still need
@@ -1040,10 +1042,10 @@ struct subr_subsetter_t
     if (unlikely (!buffArray.resize_exact (num_glyphs)))
       return false;
     hb_codepoint_t last = 0;
-    for (auto _ : plan->new_to_old_gid_list)
+    for (unsigned i = 0; i < plan->new_to_old_gid_list.length; i++)
     {
-      hb_codepoint_t gid = _.first;
-      hb_codepoint_t old_glyph = _.second;
+      hb_codepoint_t gid = plan->new_to_old_gid_list.arrayZ[i].first;
+      hb_codepoint_t old_glyph = plan->new_to_old_gid_list.arrayZ[i].second;
 
       if (endchar_op != OpCode_Invalid)
         for (; last < gid; last++)
@@ -1060,7 +1062,7 @@ struct subr_subsetter_t
 	encoder.reset ();
 	if (endchar_op != OpCode_Invalid)
 	{
-	  const auto &str = get_parsed_charstring (gid);
+	  const auto &str = get_parsed_charstring (i);
 	  if (str.has_prefix ())
 	    encoder.encode_num_cs (str.prefix_num ());
 	  encoder.encode_op (endchar_op);
@@ -1071,7 +1073,7 @@ struct subr_subsetter_t
       unsigned int  fd = subset_get_fd (acc, old_glyph);
       if (unlikely (fd >= acc.fdCount))
 	return false;
-      if (unlikely (!encode_str (get_parsed_charstring (gid), fd, buffArray.arrayZ[gid], encode_prefix)))
+      if (unlikely (!encode_str (get_parsed_charstring (i), fd, buffArray.arrayZ[gid], encode_prefix)))
 	return false;
     }
     if (endchar_op != OpCode_Invalid)
@@ -1283,23 +1285,22 @@ struct subr_subsetter_t
                             const hb_vector_t<parsed_cs_str_vec_t>& local_subrs)
   {
     closures.reset ();
-    for (auto _ : plan->new_to_old_gid_list)
+    for (unsigned i = 0; i < plan->new_to_old_gid_list.length; i++)
     {
-      hb_codepoint_t new_glyph = _.first;
-      hb_codepoint_t old_glyph = _.second;
+      hb_codepoint_t old_glyph = plan->new_to_old_gid_list.arrayZ[i].second;
       unsigned int fd = subset_get_fd (acc, old_glyph);
       if (unlikely (fd >= acc.fdCount))
         return false;
 
       // Note: const cast is safe here because the collect_subr_refs_in_str only performs a
       //       closure and does not modify any of the charstrings.
-      subr_subset_param_t  param (const_cast<parsed_cs_str_t*> (&get_parsed_charstring (new_glyph)),
+      subr_subset_param_t  param (const_cast<parsed_cs_str_t*> (&get_parsed_charstring (i)),
                                   const_cast<parsed_cs_str_vec_t*> (&global_subrs),
                                   const_cast<parsed_cs_str_vec_t*> (&local_subrs[fd]),
                                   &closures.global_closure,
                                   &closures.local_closures[fd],
                                   plan->flags & HB_SUBSET_FLAGS_NO_HINTING);
-      collect_subr_refs_in_str (get_parsed_charstring (new_glyph), param);
+      collect_subr_refs_in_str (get_parsed_charstring (i), param);
     }
 
     return true;
@@ -1412,6 +1413,9 @@ struct subr_subsetter_t
 
     compact_parsed_subrs ();
 
+    /* The accelerator looks charstrings up by glyph ID.  A plan that builds
+     * one keeps every glyph under its ID, so the position of a glyph in
+     * new_to_old_gid_list is that ID. */
     acc.cff_accelerator =
         cff_subset_accelerator_t::create(acc.blob,
                                          parsed_charstrings,
@@ -1419,6 +1423,7 @@ struct subr_subsetter_t
                                          parsed_local_subrs_storage);
   }
 
+  /* I is the position of the glyph in plan->new_to_old_gid_list. */
   const parsed_cs_str_t& get_parsed_charstring (unsigned i) const
   {
     if (cached_charstrings) return *(cached_charstrings[i]);
