@@ -36,6 +36,10 @@ typedef struct
   cairo_scaled_font_t *scaled_font;
   cairo_t *cr;
   hb_map_t *color_cache;
+  /* Live work budget of the glyph being rendered, shared by the paint
+   * walk and every outline it draws.  Only HarfBuzz's own work is
+   * charged to it; what cairo does with the result is not counted. */
+  int64_t budget_remaining;
 } hb_cairo_context_t;
 
 static inline cairo_operator_t
