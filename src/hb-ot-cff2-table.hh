@@ -71,9 +71,6 @@ struct CFF2FDSelect
 
   hb_codepoint_t get_fd (hb_codepoint_t glyph) const
   {
-    if (this == &Null (CFF2FDSelect))
-      return 0;
-
     switch (format)
     {
     case 0: hb_barrier (); return u.format0.get_fd (glyph);
@@ -85,8 +82,6 @@ struct CFF2FDSelect
   /* Returns pair of fd and one after last glyph in range. */
   hb_pair_t<unsigned, hb_codepoint_t> get_fd_range (hb_codepoint_t glyph) const
   {
-    if (this == &Null (CFF2FDSelect)) return {0, 1};
-
     switch (format)
     {
     case 0: hb_barrier (); return u.format0.get_fd_range (glyph);
@@ -468,10 +463,13 @@ struct cff2
         if (!valid_count) goto fail;
       }
 
-      fdSelect = &StructAtOffsetOrNull<CFF2FDSelect> (cff2, topDict.FDSelectOffset, sc,
-                                                   fdArray->count, num_glyphs);
-      if (topDict.FDSelectOffset && fdSelect == &Null (CFF2FDSelect))
-        goto fail;
+      if (topDict.FDSelectOffset)
+      {
+	fdSelect = &StructAtOffsetOrNull<CFF2FDSelect> (cff2, topDict.FDSelectOffset, sc,
+							fdArray->count, num_glyphs);
+	if (fdSelect == &Null (CFF2FDSelect))
+	  goto fail;
+      }
 
       fdCount = fdArray->count;
       if (!privateDicts.resize (fdCount))
@@ -544,6 +542,8 @@ struct cff2
     const CFF2ItemVariationStore	*varStore = nullptr;
     const CFF2CharStrings	*charStrings = nullptr;
     const CFF2FDArray		*fdArray = nullptr;
+    /* nullptr when the font has none; not &Null(), whose address differs
+     * in each library that shares this accelerator through the face. */
     const CFF2FDSelect		*fdSelect = nullptr;
     unsigned int		fdCount = 0;
 

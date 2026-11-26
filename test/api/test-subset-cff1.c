@@ -803,6 +803,37 @@ test_subset_cff1_preprocess_glyph_map_holes (void)
   }
 }
 
+static void
+test_subset_cff1_preprocess_twice (void)
+{
+  /* Preprocessing a preprocessed face subsets CFF through the accelerator
+   * of that face, and must leave it as it was. */
+  hb_face_t *face = hb_test_open_font_file ("fonts/SourceSansPro-Regular.abc.otf");
+  hb_face_t *preprocessed = hb_subset_preprocess (face);
+  hb_face_t *again = hb_subset_preprocess (preprocessed);
+  g_assert_true (preprocessed != face);
+  g_assert_true (again != preprocessed);
+  hb_subset_input_t *input = hb_subset_input_create_or_fail ();
+  hb_set_add (hb_subset_input_glyph_set (input), 1);
+
+  hb_face_t *expected = hb_subset_or_fail (face, input);
+  g_assert_nonnull (expected);
+  hb_face_t *faces[] = {preprocessed, again};
+  for (unsigned i = 0; i < G_N_ELEMENTS (faces); i++)
+  {
+    hb_face_t *actual = hb_subset_or_fail (faces[i], input);
+    g_assert_nonnull (actual);
+    hb_subset_test_check (expected, actual, HB_TAG ('C','F','F',' '));
+    hb_face_destroy (actual);
+  }
+
+  hb_face_destroy (expected);
+  hb_subset_input_destroy (input);
+  hb_face_destroy (again);
+  hb_face_destroy (preprocessed);
+  hb_face_destroy (face);
+}
+
 #ifdef HB_EXPERIMENTAL_API
 static void
 test_subset_cff1_iftb_requirements (void)
@@ -943,6 +974,7 @@ main (int argc, char **argv)
   hb_test_add (test_subset_cff1_shared_local_subrs);
   hb_test_add (test_subset_cff1_shared_subrs);
   hb_test_add (test_subset_cff1_preprocess_glyph_map_holes);
+  hb_test_add (test_subset_cff1_preprocess_twice);
 
 #ifdef HB_EXPERIMENTAL_API
   hb_test_add (test_subset_cff1_iftb_requirements);

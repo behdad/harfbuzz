@@ -483,7 +483,7 @@ struct cff1_subset_plan
 	subset_enc_code_ranges.push (code_pair_t {code, glyph});
       last_code = code;
 
-      if (encoding != &Null (Encoding))
+      if (encoding)
       {
 	hb_codepoint_t  sid = acc.glyph_to_sid (old_glyph, &glyph_to_sid_cache);
 	encoding->get_supplement_codes (sid, supp_codes);
@@ -640,7 +640,7 @@ struct cff1_subset_plan
       }
     }
 
-    if (acc.fdArray != &Null (CFF1FDArray))
+    if (acc.fdArray)
       for (unsigned int i = 0; i < orig_fdcount; i++)
 	if (fdmap.has (i))
 	  (void)sidmap.add (acc.fontDicts[i].fontName);
@@ -742,7 +742,7 @@ struct cff1_subset_plan
     }
 
     /* Determine re-mapping of font index as fdmap among other info */
-    if (acc.fdSelect != &Null (CFF1FDSelect))
+    if (acc.fdSelect)
     {
 	if (unlikely (!hb_plan_subset_cff_fdselect (plan,
 				  orig_fdcount,
@@ -968,7 +968,7 @@ OT::cff1::accelerator_subset_t::serialize (hb_serialize_context_t *c,
     plan.info.privateDictInfo = plan.fontdicts_mod[0].privateDictInfo;
 
   /* FDArray (FD Index) */
-  if (fdArray != &Null (CFF1FDArray))
+  if (fdArray)
   {
     auto *fda = c->push<CFF1FDArray> ();
     cff1_font_dict_op_serializer_t  fontSzr;
@@ -983,7 +983,7 @@ OT::cff1::accelerator_subset_t::serialize (hb_serialize_context_t *c,
   }
 
   /* FDSelect */
-  if (fdSelect != &Null (CFF1FDSelect))
+  if (fdSelect)
   {
     c->push ();
     if (likely (hb_serialize_cff_fdselect (c, plan.num_glyphs, *fdSelect, fdCount,

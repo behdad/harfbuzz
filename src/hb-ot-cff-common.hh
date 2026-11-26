@@ -330,8 +330,6 @@ struct FDSelect
 
   unsigned get_fd (hb_codepoint_t glyph) const
   {
-    if (this == &Null (FDSelect)) return 0;
-
     switch (format)
     {
     case 0: hb_barrier (); return u.format0.get_fd (glyph);
@@ -342,8 +340,6 @@ struct FDSelect
   /* Returns pair of fd and one after last glyph in range. */
   hb_pair_t<unsigned, hb_codepoint_t> get_fd_range (hb_codepoint_t glyph) const
   {
-    if (this == &Null (FDSelect)) return {0, 1};
-
     switch (format)
     {
     case 0: hb_barrier (); return u.format0.get_fd_range (glyph);
