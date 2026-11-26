@@ -390,8 +390,11 @@ struct hb_buffer_t
     for (unsigned int j = 0; j < len; j++)
       info[j].mask |= mask;
   }
+  enum class cluster_order_t { UNSORTED, ASCENDING, DESCENDING };
+  HB_INTERNAL cluster_order_t get_cluster_order () const;
   HB_INTERNAL void set_masks (hb_mask_t value, hb_mask_t mask,
-			      unsigned int cluster_start, unsigned int cluster_end);
+			      unsigned int cluster_start, unsigned int cluster_end,
+			      cluster_order_t order);
 
   void merge_clusters (unsigned int start, unsigned int end)
   {
