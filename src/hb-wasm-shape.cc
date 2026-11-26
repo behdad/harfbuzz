@@ -894,6 +894,11 @@ fail:
 
   if (ret)
   {
+    /* The module might have succeeded without ever setting or
+     * reading the buffer contents.  Don't return stale positions. */
+    if (!buffer->have_positions)
+      buffer->clear_positions ();
+
     buffer->clear_glyph_flags ();
     buffer->unsafe_to_break ();
   }
