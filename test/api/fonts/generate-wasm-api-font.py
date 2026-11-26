@@ -99,6 +99,7 @@ def generate(name, *flags, source=None, start=None, base="Roboto-Regular.abc.ttf
 
 
 generate("wasm-api")
+generate("wasm-noop", source="wasm-refused")
 # The same module in a variable font, for the font's coordinates.
 generate("wasm-coords", source="wasm-api", base="glyf-default-instance-bounds.ttf")
 # The runtime calls this export when it makes an instance.
