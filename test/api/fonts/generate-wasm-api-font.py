@@ -110,6 +110,21 @@ generate("wasm-start-section", "-DSTART", source="wasm-refused", start="early")
 generate("wasm-fixed-memory", "-Wl,--max-memory=1048576")
 generate("wasm-allocator-grow", "-DGROW", source="wasm-own-allocator")
 generate("wasm-allocator-reenter", "-DREENTER", source="wasm-own-allocator")
-generate("wasm-leak")
-generate("wasm-leak-own", "-DOWN", source="wasm-leak")
-generate("wasm-keep", "-DKEEP", source="wasm-leak")
+generate("wasm-allocator-arena", "-DARENA", source="wasm-own-allocator")
+# Each with a maximum for its memory, so that one instance serves buffers
+# of any length whatever the runtime makes of a module without one.
+for name, *flags in [
+    ("wasm-leak",),
+    ("wasm-leak-own", "-DOWN"),
+    ("wasm-leak-spin", "-DOWN", "-DSPIN"),
+    ("wasm-keep", "-DKEEP"),
+    ("wasm-keep-without", "-DKEEP", "-DWITHOUT"),
+    ("wasm-hold", "-DHOLD"),
+    ("wasm-ask", "-DASK=200000"),
+    ("wasm-ask-two", "-DASK=60000"),
+    ("wasm-ask-both", "-DASK=30000", "-DBOTH"),
+    ("wasm-fill", "-DFILL"),
+    ("wasm-leak-ask", "-DASK=60000", "-DLEAK"),
+    ("wasm-leak-late", "-DLATE"),
+]:
+    generate(name, "-Wl,--max-memory=1048576", *flags, source="wasm-leak")

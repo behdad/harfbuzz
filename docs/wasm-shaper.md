@@ -20,11 +20,11 @@ The WASM code inside a font is expected to export a function called `shape` whic
 
 Tokens are numbers that only mean something to the module instance they were given to. A font or buffer token is good for the `shape` call it was passed to, and names nothing after that call returns. The face token is good for as long as the instance lives. Faces and fonts that the module creates itself are the module's to destroy, with `face_destroy` and `font_destroy`. Those it still has when `shape` returns are destroyed together with the instance, which is then not used for another `shape` call.
 
-What Harfbuzz copies for a module, such as a buffer's contents, a table or an outline, it allocates inside the module's instance, in room that is 2MiB plus the size of the font. The module is to hand each copy back with the matching `_free` function when it is done with it, and may hold on to one from call to call. An instance that is left with less than 1MiB of that room after a `shape` call is not used for another one either.
+What Harfbuzz copies for a module, such as a buffer's contents, a table or an outline, it allocates inside the module's instance, in room that is 2MiB plus the size of the font. The module is to hand each copy back with the matching `_free` function when it is done with it, and may hold on to one from call to call. A copy that finds no room left fails.
 
-A `shape` call that fails does not get its instance used again. If that instance had served earlier calls, and the module has not changed the buffer, the call is made once more, in a new instance; otherwise the shaping fails.
+A `shape` call that fails, or in which a copy found no room, does not get its instance used again. If that instance had served earlier calls, the buffer is put back as it came and the call is made once more, in a new instance; a call that was stopped at the limit on instructions (see below) is not made again, unless a copy had found no room in it. Otherwise the call stands: the shaping fails if the call did. The arrays that a module asks for with `buffer_contents_realloc` count as copies here. A request for more than all the room there is does not count, the two arrays of a buffer's contents being one request: no instance could meet it. The features that `shape` is given are such a copy too: when they cannot be copied the module is not called in that instance at all. For a module that frees none of these copies, Harfbuzz guesses from its earlier calls whether an instance has room for the next one, and makes that call in a new instance if it does not look so.
 
-The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
+The general goal of WASM shaping involves receiving and manipulating a *buffer contents* structure, which is an array of *infos* and *positions* (as defined below). Initially this buffer will represent an input string in Unicode codepoints, with all positions zero. By the end of your `shape` function, it should represent a set of glyph IDs and their positions. (User-supplied WASM code will manipulate the buffer through *buffer tokens*; the `buffer_copy_contents` and `buffer_set_contents` API functions, defined below, use these tokens to exchange buffer information with the host shaping engine.)
 
 * The `buffer_contents_t` structure
 
@@ -86,6 +86,33 @@ bool shape_with(
 ```
 
 Run another shaping engine's shaping process on the given font and buffer. The only shaping engine guaranteed to be available is `ot`, the OpenType shaper, but others may also be available. This allows the WASM author to process a buffer "normally", before further manipulating it.
+
+* `feature_copy_contents` / `features_free`
+
+```C
+typedef struct
+{
+  uint32 tag;
+  uint32 value;
+  uint32 start;
+  uint32 end;
+} feature_t;
+
+typedef struct
+{
+  uint32 length;
+  feature_t* features;
+} features_t;
+
+bool feature_copy_contents(
+    feature_t* features,
+    uint32 num_features,
+    features_t* output
+)
+void features_free(features_t* features)
+```
+
+`feature_copy_contents` copies the features that `shape` was called with into the `output` structure, in memory that Harfbuzz allocates for it. `features_free` frees that memory. Unlike the other copy functions, this one does not look at what `output` holds: an array that is already there is neither used nor freed.
 
 ### Buffer access
 
@@ -307,7 +334,7 @@ void coords_free(coords_t* coords);
 
 `coords_free` frees the memory allocated to a coords structure.
 
-`font_set_coords` sets the font's variation coordinates. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
+`font_set_coords` sets the variation coordinates of a font that the module created with `font_create`. The font that `shape` was given is the caller's, and is not changed: `font_set_coords` on it fails. Because the WASM shaper is only responsible for shaping and positioning, not outline drawing, the user should *not* expect this to affect the rendered outlines; the function is only useful in very limited circumstances, such as when instantiating a second variable font and sub-shaping a buffer using this new font.
 
 ## Face handling functions
 

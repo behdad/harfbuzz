@@ -30,7 +30,7 @@
 
 /* Compile wasm-micro-runtime with:
  *
- * $ cmake -DWAMR_BUILD_MULTI_MODULE=1 -DWAMR_BUILD_INSTRUCTION_METERING=1
+ * $ cmake -DWAMR_BUILD_INSTRUCTION_METERING=1
  * $ make
  *
  * If you manage to build a wasm shared module successfully and want to use it,
@@ -116,6 +116,10 @@ struct hb_wasm_face_data_t {
   /* The heap the runtime keeps in an instance for what we allocate in
    * it: the tables, outlines and buffer contents a module asks for. */
   uint32_t heap_size;
+  /* Whether the module has an allocator of its own, which the runtime
+   * then runs in place of that heap.  Only without the limits: with
+   * them such a module is not run. */
+  bool own_allocator;
   mutable hb_atomic_t<hb_wasm_shape_plan_t *> plan;
 };
 
@@ -170,6 +174,33 @@ _hb_wasm_init ()
 
   initialized = true;
   return true;
+}
+
+/* Whether the module exports an allocator.  The runtime then leaves
+ * an instance without a heap of its own, and runs the module's
+ * allocator for every allocation we make in it.  The names are those
+ * wasm-micro-runtime looks for, as of 2.4.6. */
+static bool
+_hb_wasm_module_has_allocator (wasm_module_t wasm_module)
+{
+  bool has_malloc = false, has_free = false;
+  for (int32_t i = 0; i < wasm_runtime_get_export_count (wasm_module); i++)
+  {
+    wasm_export_t export_type;
+    wasm_runtime_get_export_type (wasm_module, i, &export_type);
+    if (export_type.kind != WASM_IMPORT_EXPORT_KIND_FUNC)
+      continue;
+
+    const char *name = export_type.name;
+    if (0 == strcmp (name, "malloc") ||
+	0 == strcmp (name, "__new"))
+      has_malloc = true;
+    if (0 == strcmp (name, "free") ||
+	0 == strcmp (name, "__release") ||
+	0 == strcmp (name, "__unpin"))
+      has_free = true;
+  }
+  return has_malloc && has_free;
 }
 
 #ifndef HB_NO_WASM_BUDGET
@@ -250,7 +281,6 @@ _hb_wasm_module_refusal (wasm_module_t wasm_module,
   if (_hb_wasm_module_has_start (data, length))
     return "has a start function";
 
-  bool has_malloc = false, has_free = false;
   for (int32_t i = 0; i < wasm_runtime_get_export_count (wasm_module); i++)
   {
     wasm_export_t export_type;
@@ -263,16 +293,8 @@ _hb_wasm_module_refusal (wasm_module_t wasm_module,
 	0 == strcmp (name, "__post_instantiate") ||
 	0 == strcmp (name, "__wasm_call_ctors"))
       return "exports a function that the runtime runs by itself";
-
-    if (0 == strcmp (name, "malloc") ||
-	0 == strcmp (name, "__new"))
-      has_malloc = true;
-    if (0 == strcmp (name, "free") ||
-	0 == strcmp (name, "__release") ||
-	0 == strcmp (name, "__unpin"))
-      has_free = true;
   }
-  if (has_malloc && has_free)
+  if (_hb_wasm_module_has_allocator (wasm_module))
     return "exports an allocator";
 
   return nullptr;
@@ -283,9 +305,6 @@ _hb_wasm_module_refusal (wasm_module_t wasm_module,
 /* What we copy for a module goes into room that its instance has for
  * that: this much, and the size of the font. */
 #define HB_WASM_HEAP_SIZE_MIN (2u << 20)
-
-/* How much of it is to be free for an instance to serve another call. */
-#define HB_WASM_HEAP_FREE_MIN (1u << 20)
 
 hb_wasm_face_data_t *
 _hb_wasm_shaper_face_data_create (hb_face_t *face)
@@ -338,6 +357,7 @@ _hb_wasm_shaper_face_data_create (hb_face_t *face)
 
   data->wasm_blob = wasm_blob.release ();
   data->wasm_module = wasm_module;
+  data->own_allocator = _hb_wasm_module_has_allocator (wasm_module);
 
   /* The runtime complains, each time, when told to hold a module to more
    * than the module's own maximum.  Modules export their memory, so look
@@ -396,18 +416,60 @@ max_memory_for (const hb_wasm_face_data_t *face_data, unsigned buffer_len)
 }
 #endif
 
+/* Whether an instance that has served calls is likely to have room
+ * for what one more leaves in it, for a buffer of the given length.
+ *
+ * A call that finds no room is done over in a new instance, which
+ * costs a call; this is to see it coming, and is only a guess.  It is
+ * made in an instance in which the module has had us free nothing:
+ * all that we allocated there is then still there.  It goes by what
+ * the instance's calls left for each item of their buffers, all but
+ * the call that left the most: that may be the one that fetched what
+ * the module holds on to, in the instance's first call or when a
+ * text first needed it.  What a call leaves need not grow with its
+ * buffer, so no instance is given up on a guess while those calls
+ * have left no more in it than is still free.  A module with an
+ * allocator of its own has room without bound, and is never guessed
+ * at.  The features of the call are in the instance while it runs,
+ * and take room too. */
+static bool
+has_room_for (const hb_wasm_shape_plan_t *plan,
+	      unsigned buffer_len,
+	      unsigned features_size)
+{
+  uint64_t rest_items = plan->items - plan->most_items;
+  if (plan->num_freed || !rest_items)
+    return true;
+
+  uint64_t rest_allocated = plan->allocated - plan->most_allocated;
+  if (plan->allocated + rest_allocated <= plan->room)
+    return true;
+  if (unlikely (plan->allocated >= plan->room))
+    return false;
+
+  /* Neither factor is as much as 2^32. */
+  uint64_t more = rest_allocated * buffer_len / rest_items;
+  return plan->allocated + more + features_size <= plan->room;
+}
+
 static hb_wasm_shape_plan_t *
 acquire_shape_plan (hb_face_t *face,
 		    const hb_wasm_face_data_t *face_data,
-		    unsigned buffer_len)
+		    unsigned buffer_len,
+		    unsigned features_size = 0,
+		    bool fresh = false)
 {
   char error[128];
 
-  /* Fetch cached one if available. */
-  hb_wasm_shape_plan_t *plan = face_data->plan.get_acquire ();
+  /* Fetch cached one if available, unless a new one is asked for: the
+   * one on the face may be another thread's by now, and as full as the
+   * one the caller gave up. */
+  hb_wasm_shape_plan_t *plan = fresh ? nullptr : face_data->plan.get_acquire ();
   if (likely (plan && face_data->plan.cmpexch (plan, nullptr)))
   {
-    if (likely (buffer_len <= plan->max_buffer_len))
+    if (unlikely (!has_room_for (plan, buffer_len, features_size)))
+      DEBUG_MSG (WASM, plan->module_inst, "The instance is not likely to have room for this call; making another.");
+    else if (likely (buffer_len <= plan->max_buffer_len))
     {
 #ifndef HB_NO_WASM_BUDGET
       /* An instance that serves buffers of any length was made for a
@@ -419,7 +481,7 @@ acquire_shape_plan (hb_face_t *face,
     }
 
     /* How much memory an instance may use is fixed when it is created,
-     * and this one was created for shorter buffers. */
+     * and this one was created for shorter buffers.  Or it is too full. */
     release_shape_plan (face_data, plan);
   }
 
@@ -490,6 +552,7 @@ acquire_shape_plan (hb_face_t *face,
   }
 #endif
 
+  plan->room = face_data->own_allocator ? (uint64_t) -1 : heap_size;
   wasm_runtime_set_custom_data (module_inst, plan);
 
   /* The face keeps one handle for as long as the instance lives. */
@@ -622,16 +685,26 @@ _hb_wasm_shaper_font_data_destroy (hb_wasm_font_data_t *data HB_UNUSED)
  * shaper
  */
 
-/* Whether the instance has room left for what another call may have us
- * copy into it. */
+/* Puts a buffer back as it came to be shaped: the items it held, in
+ * Unicode, and the state that shaping starts from. */
 static bool
-has_room (hb_wasm_shape_plan_t *plan)
+restore_buffer (hb_buffer_t *buffer,
+		const hb_vector_t<hb_glyph_info_t> &info,
+		uint32_t random_state)
 {
-  uint32_t ref = _hb_wasm_module_malloc (plan->module_inst, plan,
-					 HB_WASM_HEAP_FREE_MIN);
-  if (!ref)
+  buffer->successful = true;
+  buffer->have_output = false;
+  buffer->have_positions = false;
+  buffer->idx = 0;
+  buffer->out_len = 0;
+  buffer->out_info = buffer->info;
+  buffer->len = 0;
+  if (unlikely (!buffer->resize (info.length)))
     return false;
-  _hb_wasm_module_free (plan->module_inst, plan, ref);
+  hb_memcpy (buffer->info, info.arrayZ, info.get_size ());
+  buffer->content_type = HB_BUFFER_CONTENT_TYPE_UNICODE;
+  buffer->random_state = random_state;
+  buffer->enter ();
   return true;
 }
 
@@ -648,7 +721,25 @@ _hb_wasm_shape (hb_shape_plan_t    *shape_plan,
   bool ret = true;
   hb_face_t *face = font->face;
   const hb_wasm_face_data_t *face_data = face->data.wasm;
+  unsigned buffer_len = buffer->len;
 
+  /* The features are copied into the instance for the call. */
+  unsigned features_size;
+  if (unlikely (hb_unsigned_mul_overflows (num_features, sizeof (features[0]), &features_size)))
+    return false;
+
+  /* A buffer comes to be shaped without positions.  What a caller may
+   * have left in them is not for the module to see, and would not be
+   * there for a call that is done over. */
+  buffer->have_positions = false;
+
+  /* An instance is kept from call to call, and may fail a call for
+   * what the earlier ones left in it: no room for what we copy into it,
+   * or the module's own memory at its limit.  Such a call is done over
+   * in a new instance, once, with the buffer as it came. */
+  hb_vector_t<hb_glyph_info_t> saved_info;
+  uint32_t saved_random_state = buffer->random_state;
+  bool saved = false;
   bool retried = false;
   if (0)
   {
@@ -658,7 +749,8 @@ retry:
 
   wasm_function_inst_t func = nullptr;
 
-  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data, buffer->len);
+  hb_wasm_shape_plan_t *plan = acquire_shape_plan (face, face_data, buffer->len,
+						   features_size, retried);
   if (unlikely (!plan))
   {
     DEBUG_MSG (WASM, face_data, "Acquiring shape-plan failed.");
@@ -668,7 +760,15 @@ retry:
   auto *module_inst = plan->module_inst;
   auto *exec_env = plan->exec_env;
   unsigned num_refs = plan->refs.length;
-  unsigned num_allocated = plan->num_allocated;
+  uint64_t allocated = plan->allocated;
+  plan->copy_failed = false;
+
+  if (plan->used && !retried)
+  {
+    saved = saved_info.resize_full ((int) buffer->len, false, true);
+    if (likely (saved))
+      hb_memcpy (saved_info.arrayZ, buffer->info, saved_info.get_size ());
+  }
 
   /* What the faces a module creates hold counts against its memory, from
    * when it last owned nothing. */
@@ -694,8 +794,7 @@ retry:
   wasm_val_t arguments[5];
 
   uint32_t featuresptr;
-  featuresptr = num_features ? HB_MODULE_DUP (features,
-					      num_features * sizeof (features[0])) : 0;
+  featuresptr = features_size ? HB_MODULE_DUP (features, features_size) : 0;
 
   results[0].kind = WASM_I32;
   arguments[0].kind = WASM_I32;
@@ -709,49 +808,53 @@ retry:
   arguments[4].kind = WASM_I32;
   arguments[4].of.i32 = num_features;
 
-  /* The features are ours to free; what counts is what the call has us
-   * allocate. */
-  num_allocated = plan->num_allocated;
-
-  limit_instructions (plan, exec_env, buffer->len);
-  ret = wasm_runtime_call_wasm_a (exec_env, func,
-				  ARRAY_LENGTH (results), results,
-				  ARRAY_LENGTH (arguments), arguments);
-
-  if (num_features)
-    HB_MODULE_FREE (featuresptr);
-
-  if (unlikely (!ret || !results[0].of.i32))
+  if (unlikely (num_features && !featuresptr))
+    /* The features could not be copied, and the module is not to be
+     * called with an array that it cannot read. */
+    ret = false;
+  else
   {
+    limit_instructions (plan, exec_env, buffer->len);
+    ret = wasm_runtime_call_wasm_a (exec_env, func,
+				    ARRAY_LENGTH (results), results,
+				    ARRAY_LENGTH (arguments), arguments);
+  }
+
+  /* The features were lent for the call: they are not among what it
+   * leaves in the instance. */
+  HB_MODULE_TAKE_BACK (featuresptr, features_size);
+
+  if (unlikely (!ret || !results[0].of.i32 || plan->copy_failed))
+  {
+    const char *exception = wasm_runtime_get_exception (module_inst);
     DEBUG_MSG (WASM, module_inst, "Calling shape() failed: %s",
-	       wasm_runtime_get_exception (module_inst));
-    if (!buffer->ensure_unicode ())
-    {
-      DEBUG_MSG (WASM, font, "Shape failed but buffer is not in Unicode; failing...");
-      goto fail;
-    }
-    /* The call is made again for what earlier calls may have left in
-     * the instance.  A new instance would only do the same again. */
-    if (!plan->used)
-      goto fail;
+	       exception ? exception :
+	       num_features && !featuresptr ? "the features could not be copied" :
+	       !ret || !results[0].of.i32 ? "it returned false" :
+	       "there was no room for a copy");
+
+    bool again = saved && !retried;
 #ifndef HB_NO_WASM_BUDGET
-    /* A module that ran out of instructions would do so again.  This is
-     * the runtime's message; if it ever changes, we retry needlessly. */
-    const char *exception;
-    exception = wasm_runtime_get_exception (module_inst);
-    if (exception && strstr (exception, "limit exceeded"))
-      goto fail;
+    /* A module that ran out of instructions would do so again, unless
+     * it ran on for want of a copy.  This is the runtime's message; if
+     * it ever changes, we retry needlessly. */
+    if (exception && strstr (exception, "limit exceeded") && !plan->copy_failed)
+      again = false;
 #endif
-    if (retried)
+    if (again)
     {
-      DEBUG_MSG (WASM, font, "Giving up...");
-      goto fail;
+      if (unlikely (!restore_buffer (buffer, saved_info, saved_random_state)))
+	goto fail;
+      retried = true;
+      release_shape_plan (face_data, plan);
+      plan = nullptr;
+      goto retry;
     }
-    buffer->successful = true;
-    retried = true;
-    release_shape_plan (face_data, plan);
-    plan = nullptr;
-    goto retry;
+
+    /* In an instance that was new, the call stands as the module left
+     * it: it may have made do without the copy. */
+    if (!ret || !results[0].of.i32)
+      goto fail;
   }
 
   /* TODO Regularize clusters according to direction & cluster level,
@@ -763,24 +866,23 @@ fail:
     ret = false;
   }
 
+  /* For has_room_for().  What a module had us allocate while its
+   * instance was made goes with the instance's first call. */
+  uint64_t left = plan->used ? plan->allocated - allocated : plan->allocated;
+  plan->items += buffer_len;
+  if (left > plan->most_allocated)
+  {
+    plan->most_allocated = left;
+    plan->most_items = buffer_len;
+  }
   plan->used = true;
 
   /* A module that still owns an object expects it to be there in the
-   * next call.  It gets a fresh instance instead, and starts over. */
-  bool keep = ret && !plan->num_owned;
-
-  /* So does a module whose instance is filling up with what we copy
-   * for it.  A module is to free that when done with it, and many free
-   * nothing: every one made with the Rust toolkit as it was until
-   * lately.  Their calls would start to fail after a while, most with
-   * the buffer already changed, so not to be made again.  We look
-   * after any call that had us allocate in the instance. */
-  if (keep && plan->num_allocated != num_allocated &&
-      unlikely (!has_room (plan)))
-  {
-    DEBUG_MSG (WASM, module_inst, "The module's instance is filling up; not keeping it.");
-    keep = false;
-  }
+   * next call.  It gets a fresh instance instead, and starts over.  So
+   * does one whose instance had no room left for a copy: a module is to
+   * free what we copy for it when done with it, and many free nothing,
+   * every one made with the Rust toolkit as it was until lately. */
+  bool keep = ret && !plan->num_owned && !plan->copy_failed;
 
   /* The instance may be kept for the next call, and the font and the
    * buffer may be gone by then.  Drop the handles made during this

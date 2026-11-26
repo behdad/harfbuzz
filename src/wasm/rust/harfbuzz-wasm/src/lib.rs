@@ -44,6 +44,7 @@ extern "C" {
     fn font_get_glyph_v_advance(font: u32, glyph: u32) -> i32;
     fn font_copy_glyph_outline(font: u32, glyph: u32, outline: *mut CGlyphOutline) -> bool;
     fn face_copy_table(font: u32, tag: u32, blob: *mut Blob) -> bool;
+    fn blob_free(blob: *mut Blob);
     fn buffer_copy_contents(buffer: u32, cbuffer: *mut CBufferContents) -> bool;
     fn buffer_set_contents(buffer: u32, cbuffer: &CBufferContents) -> bool;
     fn buffer_contents_free(cbuffer: *mut CBufferContents);
@@ -58,6 +59,36 @@ extern "C" {
         num_features: u32,
         shaper: *const u8,
     ) -> i32;
+}
+
+/// The `len` values that Harfbuzz put at `data`, or the empty slice if
+/// there are none to be had.
+///
+/// Harfbuzz gives a length of 0 where it had nothing to copy or could not
+/// make the copy. The pointer that comes with it may be null, which
+/// `slice::from_raw_parts` is not to be given, or may name a block that
+/// holds nothing of use: a length of 0 gives the empty slice whatever the
+/// pointer is.
+///
+/// # Safety
+///
+/// If `data` is not null and `len` is not 0, then `data` must point to
+/// `len` initialized values of `T` in one allocation, and nothing may
+/// write those values or free the allocation for the lifetime `'a`, which
+/// the caller chooses.
+unsafe fn host_slice<'a, T>(data: *const T, len: usize) -> &'a [T] {
+    let most = isize::MAX as usize / std::mem::size_of::<T>().max(1);
+    // An alignment is a power of two.
+    let aligned = data as usize & (std::mem::align_of::<T>() - 1) == 0;
+    if data.is_null() || len == 0 || len > most || !aligned {
+        return &[];
+    }
+    // SAFETY: `data` is not null and `len` is not 0, so the caller has
+    // promised `len` initialized values of `T` in one allocation, neither
+    // written nor freed while `'a` lasts. `data` is aligned for `T` and
+    // the slice is at most `isize::MAX` bytes: both checked above. That
+    // is all that `slice::from_raw_parts` asks for.
+    unsafe { std::slice::from_raw_parts(data, len) }
 }
 
 /// An opaque reference to a font at a given size and
@@ -163,12 +194,28 @@ impl Font {
             n_contours: 0,
             contours: std::ptr::null_mut(),
         };
-        let end_pts_of_contours: &[usize] = unsafe {
+        // SAFETY: `font_copy_glyph_outline` takes a font token, a glyph
+        // and a pointer to a `glyph_outline_t` that it may read and write
+        // for the call. `self.0` is the token this `Font` was made from,
+        // and `&mut outline` is a live, exclusive `CGlyphOutline`, which
+        // has the layout of `glyph_outline_t` (`repr(C)`: a count and a
+        // pointer, twice, of 32 bits each in a module). The outline goes
+        // in empty, so Harfbuzz frees nothing of ours.
+        unsafe {
             font_copy_glyph_outline(self.0, glyph, &mut outline);
-            std::slice::from_raw_parts(outline.contours, outline.n_contours as usize)
-        };
-        let points: &[CGlyphOutlinePoint] =
-            unsafe { std::slice::from_raw_parts(outline.points, outline.n_points as usize) };
+        }
+        // SAFETY: Harfbuzz leaves both counts at 0 unless it made the
+        // copy: then `n_contours` indices are at `contours` and `n_points`
+        // points at `points`, each in a block that it allocated in this
+        // module for this call. A point is two floats and a number, and
+        // an index is a number: any bits are a value of those. A count of
+        // 0 may come with any pointer, which `host_slice` then does not
+        // look at. Only `outline` has the pointers: nothing writes the
+        // blocks, and they are freed by `glyph_outline_free` at the end of
+        // this function, after the last use of the two slices.
+        let end_pts_of_contours: &[usize] =
+            unsafe { host_slice(outline.contours, outline.n_contours) };
+        let points: &[CGlyphOutlinePoint] = unsafe { host_slice(outline.points, outline.n_points) };
         let mut results: Vec<BezPath> = vec![];
         let mut start_pt: usize = 0;
         for end_pt in end_pts_of_contours {
@@ -179,9 +226,9 @@ impl Font {
             while ix < this_contour.len() {
                 let point = &this_contour[ix];
                 match point.pointtype {
-                    PointType::MoveTo => path.move_to((point.x as f64, point.y as f64)),
-                    PointType::LineTo => path.line_to((point.x as f64, point.y as f64)),
-                    PointType::QuadraticTo => {
+                    MOVE_TO => path.move_to((point.x as f64, point.y as f64)),
+                    LINE_TO => path.line_to((point.x as f64, point.y as f64)),
+                    QUADRATIC_TO => {
                         ix += 1;
                         let end_pt = &this_contour[ix];
                         path.quad_to(
@@ -189,7 +236,7 @@ impl Font {
                             (end_pt.x as f64, end_pt.y as f64),
                         );
                     }
-                    PointType::CubicTo => {
+                    CUBIC_TO => {
                         ix += 1;
                         let mid_pt = &this_contour[ix];
                         ix += 1;
@@ -200,6 +247,9 @@ impl Font {
                             (end_pt.x as f64, end_pt.y as f64),
                         );
                     }
+                    // A type that Harfbuzz did not have when this was
+                    // written.
+                    _ => {}
                 }
                 ix += 1;
             }
@@ -220,6 +270,8 @@ pub struct Face(u32);
 
 impl Face {
     /// Get a blob containing the contents of the given binary font table.
+    ///
+    /// The blob is empty if the font has no such table.
     pub fn reference_table(&self, tag: &str) -> Blob {
         let mut tag_u: u32 = 0;
         let mut chars = tag.chars();
@@ -231,6 +283,14 @@ impl Face {
             data: std::ptr::null_mut(),
             length: 0,
         };
+        // SAFETY: `face_copy_table` takes a face token and a pointer to a
+        // `blob_t` that it may read and write for the call. `self.0` is
+        // the token this `Face` was made from, and `&mut blob` is a live,
+        // exclusive `Blob`, which has the layout of `blob_t` (`repr(C)`:
+        // a `u32` length, then the data pointer). The blob goes in empty,
+        // so Harfbuzz frees nothing of ours. It leaves it empty, or with
+        // `data` naming a block of `length` bytes that it allocated in
+        // this module and filled with the table: the invariant of `Blob`.
         unsafe {
             face_copy_table(self.0, tag_u, &mut blob);
         }
@@ -281,12 +341,16 @@ impl<T: BufferItem> Buffer<T> {
         unsafe {
             buffer_copy_contents(ptr, &mut c_contents) || panic!("Couldn't copy buffer contents")
         };
-        let positions: Vec<CGlyphPosition> = unsafe {
-            std::slice::from_raw_parts(c_contents.position, c_contents.length as usize).to_vec()
-        };
-        let infos: Vec<CGlyphInfo> = unsafe {
-            std::slice::from_raw_parts(c_contents.info, c_contents.length as usize).to_vec()
-        };
+        // SAFETY: `buffer_copy_contents` returned true, so `length` is 0
+        // or `position` and `info` each name `length` items, in a block
+        // that Harfbuzz allocated in this module for this call and filled
+        // in. Only `c_contents` has the pointers: nothing writes the
+        // blocks, and they are freed by `buffer_contents_free` below,
+        // after both have been copied into vectors.
+        let positions: Vec<CGlyphPosition> =
+            unsafe { host_slice(c_contents.position, c_contents.length as usize) }.to_vec();
+        let infos: Vec<CGlyphInfo> =
+            unsafe { host_slice(c_contents.info, c_contents.length as usize) }.to_vec();
         unsafe { buffer_contents_free(&mut c_contents) };
         Buffer {
             glyphs: infos
@@ -319,13 +383,59 @@ impl<T: BufferItem> Drop for Buffer<T> {
 }
 
 /// Some data provided by Harfbuzz.
+///
+/// Harfbuzz allocates the memory for it in the module, and gets it back
+/// when the `Blob` is dropped.
 #[derive(Debug)]
 #[repr(C)]
 pub struct Blob {
+    // INVARIANT: either `length` is 0, or `data` names a block of `length`
+    // initialized bytes that Harfbuzz allocated in this module for this
+    // `Blob` alone and that has not been freed. The fields are private so
+    // that nothing outside this crate can make a `Blob` or change one.
     /// Length of the blob in bytes
-    pub length: u32,
+    length: u32,
     /// A raw pointer to the contents
-    pub data: *mut u8,
+    data: *mut u8,
+}
+
+impl Blob {
+    /// The contents.
+    pub fn as_slice(&self) -> &[u8] {
+        // SAFETY: by the invariant, if `length` is not 0 then `data` names
+        // one block of `length` initialized bytes. Only this `Blob` knows
+        // the block: nothing writes it, and it is freed in `drop`, which
+        // takes `&mut self` and so cannot run while the slice borrows
+        // `self`.
+        unsafe { host_slice(self.data, self.length as usize) }
+    }
+
+    /// Length of the contents in bytes.
+    pub fn len(&self) -> usize {
+        self.length as usize
+    }
+
+    /// Whether there are no contents.
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
+
+impl Drop for Blob {
+    fn drop(&mut self) {
+        // SAFETY: `blob_free` takes a pointer to a `blob_t` that it may
+        // read and write for the call, whose `data` is null or a block
+        // that Harfbuzz allocated in this module and has not freed; it
+        // frees the block and empties the structure, or does neither if
+        // the call has used up its allowance of work. `self` is a live,
+        // exclusive `Blob` with the layout of `blob_t` (`repr(C)`). By the
+        // invariant `data` is such a block or the blob is empty, in which
+        // case `data` is null: `reference_table` starts from null, and
+        // Harfbuzz only stores a block together with a length that is
+        // not 0. The block is freed once: `drop` runs once, nothing else
+        // calls `blob_free`, and a `Blob` cannot be copied.
+        unsafe { blob_free(self) }
+    }
 }
 
 /// Glyph information in a buffer item provided by Harfbuzz
@@ -467,22 +577,20 @@ impl BufferItem for Glyph {
     }
 }
 
-#[repr(C)]
-#[allow(clippy::enum_variant_names)]
-#[derive(Clone, Debug)]
-enum PointType {
-    MoveTo,
-    LineTo,
-    QuadraticTo,
-    CubicTo,
-}
+// The types of an outline's points, as Harfbuzz numbers them. They are
+// read as numbers: memory that the host wrote is not to be taken for a
+// Rust enum, which may only ever hold the values it has.
+const MOVE_TO: u32 = 0;
+const LINE_TO: u32 = 1;
+const QUADRATIC_TO: u32 = 2;
+const CUBIC_TO: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Debug)]
 struct CGlyphOutlinePoint {
     x: f32,
     y: f32,
-    pointtype: PointType,
+    pointtype: u32,
 }
 
 #[repr(C)]
@@ -524,8 +632,12 @@ impl Features {
                 feature_copy_contents(ptr, count, &mut c_features);
             }
         }
-        let slice =
-            unsafe { std::slice::from_raw_parts(c_features.features, c_features.length as usize) };
+        // SAFETY: `length` is 0, as it started, unless Harfbuzz put that
+        // many features at `features`, in a block it allocated in this
+        // module for this call. Only `c_features` has the pointer: nothing
+        // writes the block, and it is freed by `features_free` below,
+        // after the last use of the slice.
+        let slice = unsafe { host_slice(c_features.features, c_features.length as usize) };
         let features: Vec<Feature> = slice
             .iter()
             .map(|f| Feature {

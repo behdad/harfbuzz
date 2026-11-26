@@ -84,6 +84,14 @@ struct hb_wasm_shape_plan_t
     return entry && entry->type == type ? entry->obj : nullptr;
   }
 
+  /* Whether the handle is of an object of that type that the module
+   * created. */
+  bool owns (uint32_t ref, unsigned type)
+  {
+    const hb_wasm_ref_t *entry = refs.bsearch (ref);
+    return entry && entry->type == type && entry->owned;
+  }
+
   /* Returns the handle that the object has, or nullref. */
   uint32_t find_ref (const void *obj, unsigned type) const
   {
@@ -201,10 +209,40 @@ struct hb_wasm_shape_plan_t
   /* Not zero while the runtime may be running the module's own
    * allocator for us, in the middle of one of our functions. */
   unsigned allocating;
-  /* How many times we have allocated memory in the instance.  What a
-   * module frees is not counted: it can have us free what was never
-   * ours. */
-  unsigned num_allocated;
+  /* Notes an allocation of ours in the instance: one of that many
+   * blocks of its size that a request of the module's takes.  The two
+   * arrays of a buffer's contents are of no use one without the
+   * other. */
+  void note_allocation (uint32_t ref, uint32_t size, unsigned blocks)
+  {
+    if (likely (ref))
+      /* Counted high rather than low: a block takes a few bytes more
+       * of the room than its size. */
+      allocated += (uint64_t) size + 16;
+    /* What the room could not hold if it were empty, a new instance
+     * could not hold either. */
+    else if (size && (uint64_t) size * blocks <= room)
+      copy_failed = true;
+  }
+
+  /* How much room the instance has for what we copy into it, in bytes:
+   * the heap we had the runtime keep there, or no bound that we know of
+   * if the module has an allocator of its own. */
+  uint64_t room;
+  /* How much we have allocated there since the instance was made, and
+   * how many times the module has had us free something. */
+  uint64_t allocated;
+  unsigned num_freed;
+  /* How many items the buffers had that the instance's calls shaped;
+   * and of those calls, what the one that left the most of what we
+   * allocated left, and how many items its buffer had. */
+  uint64_t items;
+  uint64_t most_allocated;
+  uint64_t most_items;
+  /* Whether an allocation of ours in the instance failed in the current
+   * call for want of room: there was none left for something that the
+   * module had us copy. */
+  bool copy_failed;
   /* Whether the instance has served a shape() call. */
   bool used;
 };
@@ -279,28 +317,28 @@ _hb_wasm_charge (wasm_module_inst_t inst,
 static inline uint32_t
 _hb_wasm_module_malloc (wasm_module_inst_t inst,
 			hb_wasm_shape_plan_t *plan,
-			uint32_t size)
+			uint32_t size, unsigned blocks = 1)
 {
   if (unlikely (!plan))
     return nullref;
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_malloc (inst, size, nullptr);
   plan->allocating--;
-  plan->num_allocated += !!ref;
+  plan->note_allocation (ref, size, blocks);
   return ref;
 }
 
 static inline uint32_t
 _hb_wasm_module_dup (wasm_module_inst_t inst,
 		     hb_wasm_shape_plan_t *plan,
-		     const char *data, uint32_t size)
+		     const char *data, uint32_t size, unsigned blocks = 1)
 {
   if (unlikely (!plan))
     return nullref;
   plan->allocating++;
   uint32_t ref = (uint32_t) wasm_runtime_module_dup_data (inst, data, size);
   plan->allocating--;
-  plan->num_allocated += !!ref;
+  plan->note_allocation (ref, size, blocks);
   return ref;
 }
 
@@ -314,14 +352,38 @@ _hb_wasm_module_free (wasm_module_inst_t inst,
   plan->allocating++;
   wasm_runtime_module_free (inst, ref);
   plan->allocating--;
+  plan->num_freed += !!ref;
+}
+
+/* Frees a block of ours that the module was not given to keep.  It is
+ * then not among what we allocated in the instance, and not something
+ * that the module had us free. */
+static inline void
+_hb_wasm_module_take_back (wasm_module_inst_t inst,
+			   hb_wasm_shape_plan_t *plan,
+			   uint32_t ref, uint32_t size)
+{
+  if (unlikely (!plan || !ref))
+    return;
+  plan->allocating++;
+  wasm_runtime_module_free (inst, ref);
+  plan->allocating--;
+  plan->allocated -= (uint64_t) size + 16;
 }
 
 #define HB_MODULE_MALLOC(size) \
   _hb_wasm_module_malloc (module_inst, HB_WASM_PLAN, size)
 #define HB_MODULE_DUP(data, size) \
   _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size)
+/* For each of the two blocks of one size that a request takes. */
+#define HB_MODULE_MALLOC_PAIR(size) \
+  _hb_wasm_module_malloc (module_inst, HB_WASM_PLAN, size, 2)
+#define HB_MODULE_DUP_PAIR(data, size) \
+  _hb_wasm_module_dup (module_inst, HB_WASM_PLAN, (const char *) (data), size, 2)
 #define HB_MODULE_FREE(ref) \
   _hb_wasm_module_free (module_inst, HB_WASM_PLAN, ref)
+#define HB_MODULE_TAKE_BACK(ref, size) \
+  _hb_wasm_module_take_back (module_inst, HB_WASM_PLAN, ref, size)
 
 #define HB_REF2OBJ(obj) \
   hb_##obj##_t *obj = nullptr; \
