@@ -19,8 +19,6 @@ void collect_pair_variation_indices (hb_collect_variation_indices_context_t *c,
                                      unsigned class2_count,
                                      const ValueRecord &values)
 {
-  if (!coverage.intersects (c->glyph_set) ||
-      !class_def2.intersects (c->glyph_set)) return;
   if ((!valueFormat1.has_device ()) && (!valueFormat2.has_device ())) return;
 
   /* Any number of offsets can point at us, and a Coverage range of a few
@@ -32,6 +30,9 @@ void collect_pair_variation_indices (hb_collect_variation_indices_context_t *c,
 
   /* Classes outside the matrix have no values; apply() ignores them too. */
   hb_set_t class1_set, class2_set;
+  if (unlikely (first_glyphs.is_empty () ||
+                !c->check_ops (class_def1.get_record_count ()) ||
+                !c->check_ops (class_def2.get_record_count ()))) return;
   class_def1.intersected_classes (&first_glyphs, &class1_set);
   class1_set.del_range (class1_count, HB_SET_VALUE_INVALID);
 
@@ -49,6 +50,7 @@ void collect_pair_variation_indices (hb_collect_variation_indices_context_t *c,
   const hb_array_t<const Value> values_array = values.as_array ((unsigned)class1_count * (unsigned) class2_count * (len1 + len2));
   for (const unsigned class1_idx : class1_set.iter ())
   {
+    if (unlikely (!c->check_ops (class2_set.get_population ()))) return;
     for (const unsigned class2_idx : class2_set.iter ())
     {
       unsigned start_offset = (class1_idx * (unsigned) class2_count + class2_idx) * (len1 + len2);
