@@ -2705,6 +2705,7 @@ hb_raster_paint_render (hb_raster_paint_t *paint)
       return nullptr;
   }
 
+  paint->storage_bytes -= result->buffer.allocated;
   return result;
 }
 

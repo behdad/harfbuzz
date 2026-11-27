@@ -86,6 +86,17 @@ test_storage_limit ()
   hb_paint_pop_clip (funcs, paint);
   hb_paint_pop_group (funcs, paint, HB_PAINT_COMPOSITE_MODE_SRC_OVER);
   hb_always_assert (paint->surface_cache && paint->clip_cache);
+  uint64_t cached_bytes = paint->storage_bytes;
+  for (unsigned i = 0; i < 3; i++)
+  {
+    hb_raster_image_t *image = hb_raster_paint_render (paint);
+    hb_always_assert (image && paint->storage_bytes == cached_bytes - image->buffer.allocated);
+    hb_raster_paint_recycle_image (paint, image);
+    hb_always_assert (paint->storage_bytes == cached_bytes);
+    hb_raster_paint_set_extents (paint, &ext);
+    hb_paint_push_group (funcs, paint);
+    hb_paint_pop_group (funcs, paint, HB_PAINT_COMPOSITE_MODE_SRC_OVER);
+  }
   /* Exercise the pressure path without a large allocation. The cached
    * group is checked out, the idle mask is evicted, and the recount
    * includes both the active root and the checked-out group. */

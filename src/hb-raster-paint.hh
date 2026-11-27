@@ -216,7 +216,7 @@ struct hb_raster_paint_t
 
   /* Upper bound on backing storage. Transfers between a stack and a cache
    * keep their charge. Recount on pressure to reclaim charges for buffers
-   * returned to callers or discarded after allocation failures. */
+   * discarded after allocation failures. */
   uint64_t storage_bytes = 0;
 
   bool reserve_storage (uint64_t size, unsigned capacity, uint64_t limit)
