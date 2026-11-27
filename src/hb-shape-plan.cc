@@ -314,8 +314,11 @@ hb_shape_plan_create2 (hb_face_t                     *face,
 				       shaper_list)))
     goto bail2;
 #ifndef HB_NO_OT_SHAPE
-  if (shape_plan->key.shaper_func == _hb_ot_shape &&
-      unlikely (!shape_plan->ot.init0 (face, *props, &shape_plan->key)))
+  /* OT plan queries are available with every shaper. Other shapers keep
+   * the raw language in their cache key and resolve it only on a miss. */
+  if (shape_plan->key.shaper_func != _hb_ot_shape)
+    shape_plan->key.ot.langsys.init (face, *props);
+  if (unlikely (!shape_plan->ot.init0 (face, *props, &shape_plan->key)))
     goto bail3;
 #endif
 

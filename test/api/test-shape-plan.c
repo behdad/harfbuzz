@@ -115,8 +115,17 @@ test_shape_plan_cached_languages (void)
   hb_shape_plan_t *plan = hb_shape_plan_create (source, &props, NULL, 0, shapers);
   hb_set_t *lookups = hb_set_create ();
   hb_ot_shape_plan_collect_lookups (plan, HB_OT_TAG_GSUB, lookups);
-  g_assert_true (hb_set_is_empty (lookups));
-  g_assert_cmpuint (hb_ot_shape_plan_get_feature_tags (plan, 0, NULL, NULL), ==, 0);
+  const char *ot_shapers[] = {"ot", NULL};
+  hb_shape_plan_t *ot_plan = hb_shape_plan_create (source, &props, NULL, 0, ot_shapers);
+  hb_set_t *ot_lookups = hb_set_create ();
+  hb_ot_shape_plan_collect_lookups (ot_plan, HB_OT_TAG_GSUB, ot_lookups);
+  g_assert_false (hb_set_is_empty (lookups));
+  g_assert_true (hb_set_is_equal (lookups, ot_lookups));
+  unsigned int count = hb_ot_shape_plan_get_feature_tags (ot_plan, 0, NULL, NULL);
+  g_assert_cmpuint (count, >, 0);
+  g_assert_cmpuint (hb_ot_shape_plan_get_feature_tags (plan, 0, NULL, NULL), ==, count);
+  hb_set_destroy (ot_lookups);
+  hb_shape_plan_destroy (ot_plan);
   hb_set_destroy (lookups);
   hb_shape_plan_destroy (plan);
 #endif

@@ -1225,7 +1225,7 @@ _hb_ot_shape (hb_shape_plan_t    *shape_plan,
  * @lookup_indexes: (out): The #hb_set_t set of lookups returned
  *
  * Computes the complete set of GSUB or GPOS lookups that are applicable
- * under a given @shape_plan. Only plans using the ot shaper contribute lookups.
+ * under a given @shape_plan.
  *
  * Since: 0.9.7
  **/
@@ -1247,8 +1247,7 @@ hb_ot_shape_plan_collect_lookups (hb_shape_plan_t *shape_plan,
  * @tags: (out caller-allocates) (array length=tag_count) (optional): The array of enabled feature tags.
  *        May be `NULL` only if @tag_count is `NULL` or zero.
  *
- * Fetches the list of OpenType feature tags enabled for a shaping plan.
- * Plans using another shaper return an empty list.
+ * Fetches the list of OpenType feature tags enabled for a shaping plan, if possible.
  *
  * Return value: Total number of feature tags.
  *
