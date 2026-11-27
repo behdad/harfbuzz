@@ -71,6 +71,34 @@ hb_shape_plan_t::~hb_shape_plan_t ()
  * hb_shape_plan_key_t
  */
 
+void
+hb_shape_plan_key_t::init_props (hb_face_t *face HB_UNUSED, const hb_segment_properties_t &props,
+				 const hb_shape_plan_t *cached HB_UNUSED)
+{
+  this->props = props;
+#ifndef HB_NO_OT_SHAPE
+  if (shaper_func == _hb_ot_shape)
+  {
+    this->props.language = nullptr;
+    if (cached && cached->key.shaper_func == _hb_ot_shape &&
+	hb_segment_properties_equal (&cached->ot.props, &props))
+      ot.langsys = cached->key.ot.langsys;
+    else
+      ot.langsys.init (face, props);
+  }
+#endif
+}
+
+bool
+hb_shape_plan_key_t::props_equal (const hb_shape_plan_key_t &other) const
+{
+#ifndef HB_NO_OT_SHAPE
+  if (shaper_func == _hb_ot_shape && !(ot.langsys == other.ot.langsys))
+    return false;
+#endif
+  return hb_segment_properties_equal (&props, &other.props);
+}
+
 bool
 hb_shape_plan_key_t::init (bool                           copy,
 			   hb_face_t                     *face,
@@ -80,13 +108,12 @@ hb_shape_plan_key_t::init (bool                           copy,
 			   const int                     *coords,
 			   unsigned int                   num_coords,
 			   const char * const            *shaper_list,
-			   const hb_shape_plan_key_t     *cached HB_UNUSED)
+			   const hb_shape_plan_t         *cached)
 {
   hb_feature_t *features = nullptr;
   if (copy && num_user_features && !(features = (hb_feature_t *) hb_calloc (num_user_features, sizeof (hb_feature_t))))
     goto bail;
 
-  this->props = *props;
   this->num_user_features = num_user_features;
   this->user_features = copy ? features : user_features;
   if (copy && num_user_features)
@@ -107,12 +134,12 @@ hb_shape_plan_key_t::init (bool                           copy,
   default_coords = !num_coords;
   /* The same face and coordinates have the same variation state. At the
    * default location we can reuse the indices if both condition lists are empty. */
-  if (cached && default_coords && cached->default_coords &&
-      !cached->ot.lookup_conditions[0].length &&
-      !cached->ot.lookup_conditions[1].length)
+  if (cached && default_coords && cached->key.default_coords &&
+      !cached->key.ot.lookup_conditions[0].length &&
+      !cached->key.ot.lookup_conditions[1].length)
   {
-    ot.variations_index[0] = cached->ot.variations_index[0];
-    ot.variations_index[1] = cached->ot.variations_index[1];
+    ot.variations_index[0] = cached->key.ot.variations_index[0];
+    ot.variations_index[1] = cached->key.ot.variations_index[1];
   }
   else if (unlikely (!ot.init (face, coords, num_coords)))
     goto bail;
@@ -128,6 +155,7 @@ hb_shape_plan_key_t::init (bool                           copy,
 	  { \
 	    this->shaper_func = _hb_##shaper##_shape; \
 	    this->shaper_name = #shaper; \
+	    init_props (face, *props, cached); \
 	    return true; \
 	  } \
 	} HB_STMT_END
@@ -187,12 +215,12 @@ hb_shape_plan_key_t::user_features_match (const hb_shape_plan_key_t *other)
 bool
 hb_shape_plan_key_t::equal (const hb_shape_plan_key_t *other)
 {
-  return hb_segment_properties_equal (&this->props, &other->props) &&
-	 this->user_features_match (other) &&
+  return this->shaper_func == other->shaper_func &&
+	 this->props_equal (*other) &&
 #ifndef HB_NO_OT_SHAPE
 	 this->ot.equal (&other->ot) &&
 #endif
-	 this->shaper_func == other->shaper_func;
+	 this->user_features_match (other);
 }
 
 
@@ -286,7 +314,8 @@ hb_shape_plan_create2 (hb_face_t                     *face,
 				       shaper_list)))
     goto bail2;
 #ifndef HB_NO_OT_SHAPE
-  if (unlikely (!shape_plan->ot.init0 (face, &shape_plan->key)))
+  if (shape_plan->key.shaper_func == _hb_ot_shape &&
+      unlikely (!shape_plan->ot.init0 (face, *props, &shape_plan->key)))
     goto bail3;
 #endif
 
@@ -435,7 +464,12 @@ _hb_shape_plan_execute_internal (hb_shape_plan_t    *shape_plan,
     return false;
 
   assert (shape_plan->face_unsafe == font->face);
-  assert (hb_segment_properties_equal (&shape_plan->key.props, &buffer->props));
+#ifndef NDEBUG
+  hb_shape_plan_key_t key;
+  key.shaper_func = shape_plan->key.shaper_func;
+  key.init_props (font->face, buffer->props, shape_plan);
+  assert (key.props_equal (shape_plan->key));
+#endif
 
   /* Install the per-text work limits (max_len, max_ops) around the actual
    * shaping, so that hb_shape_plan_execute() is as bounded as hb_shape(). */
@@ -587,7 +621,7 @@ retry:
 
   bool dont_cache = !hb_object_is_valid (face);
 
-  if (likely (!dont_cache))
+  if (likely (cached_plan_nodes))
   {
     hb_face_t::plan_node_t *cached = face->last_shape_plan.get_acquire ();
     hb_shape_plan_key_t key;
@@ -599,7 +633,7 @@ retry:
 		   coords,
 		   num_coords,
 		   shaper_list,
-		   cached ? &cached->shape_plan->key : nullptr))
+		   cached ? cached->shape_plan : nullptr))
       return hb_shape_plan_get_empty ();
 
     if (cached && cached->shape_plan->key.equal (&key))
@@ -621,6 +655,9 @@ retry:
 						       user_features, num_user_features,
 						       coords, num_coords,
 						       shaper_list);
+
+  if (unlikely (shape_plan == hb_shape_plan_get_empty ()))
+    return shape_plan;
 
   if (unlikely (dont_cache))
   {

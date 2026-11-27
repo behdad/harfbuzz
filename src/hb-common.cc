@@ -430,25 +430,25 @@ hb_language_matches (hb_language_t language,
 	 (s[ll] == '\0' || s[ll] == '-');
 }
 
-/* Returns hb_language_matches (hb_language_from_string (str, len), specific),
+/* Like hb_language_matches (hb_language_from_string (str, len), specific),
  * without interning @str; hb_language_from_string() would add it to the
  * process-wide list of languages forever. */
-bool
-hb_language_matches_string (const char    *str,
+int
+hb_language_matching_prefix (const char    *str,
 			    unsigned int   len,
 			    hb_language_t  specific)
 {
-  if (!str || !len || !*str) return specific == HB_LANGUAGE_INVALID;
-  if (!specific) return false;
+  if (!str || !len || !*str) return specific == HB_LANGUAGE_INVALID ? 0 : -1;
+  if (!specific) return -1;
 
   const unsigned char *p1 = (const unsigned char *) str;
   const char *s = specific->s;
   len = hb_min (len, (unsigned) LANG_MAX_LEN);
   unsigned l = 0;
   for (; l < len && canon_map[p1[l]]; l++)
-    if (canon_map[p1[l]] != s[l]) return false;
+    if (canon_map[p1[l]] != s[l]) return -1;
 
-  return s[l] == '\0' || s[l] == '-';
+  return s[l] == '\0' || s[l] == '-' ? (int) l : -1;
 }
 
 

@@ -1214,7 +1214,7 @@ struct Chain
 #ifndef HB_NO_AAT
 	else if (type == HB_AAT_LAYOUT_FEATURE_TYPE_LANGUAGE_TAG_TYPE && setting &&
 		 /* TODO: Rudimentary language matching. */
-		 map->face->table.ltag->matches_language (setting - 1, map->props.language))
+		 map->face->table.ltag->matching_prefix (setting - 1, map->props.language) >= 0)
 	{
 	  flags &= feature.disableFlags;
 	  flags |= feature.enableFlags;

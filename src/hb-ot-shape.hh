@@ -51,6 +51,7 @@ _hb_ot_layout_feature_get_lookup_variations (hb_face_t *face,
 
 struct hb_ot_shape_plan_key_t
 {
+  hb_ot_shape_langsys_t langsys;
   unsigned int variations_index[2];
   /* Sorted offsets of distinct true conditions within FeatureVariations.
    * Different outcomes may conservatively separate equivalent lookup sets. */
@@ -173,6 +174,7 @@ struct hb_ot_shape_plan_t
   }
 
   HB_INTERNAL bool init0 (hb_face_t                     *face,
+			  const hb_segment_properties_t &props,
 			  const hb_shape_plan_key_t     *key);
   HB_INTERNAL void fini ();
 
@@ -199,7 +201,8 @@ struct hb_ot_shape_planner_t
   const struct hb_ot_shaper_t *shaper;
 
   HB_INTERNAL hb_ot_shape_planner_t (hb_face_t                     *face,
-				     const hb_segment_properties_t &props);
+				     const hb_segment_properties_t &props,
+				     const hb_ot_shape_langsys_t   &langsys);
 
   HB_INTERNAL void compile (hb_ot_shape_plan_t           &plan,
 			    const hb_ot_shape_plan_key_t &key);
