@@ -247,6 +247,10 @@ test_get_table_tags_dfont (void)
 
   hb_blob_t *blob = hb_blob_create (data, length, HB_MEMORY_MODE_WRITABLE, data, free);
   g_assert_cmpuint (1u, ==, hb_face_count (blob));
+  hb_face_t *missing = hb_face_create (blob, 1);
+  g_assert_cmpuint (hb_face_get_table_tags (missing, 0, NULL, NULL), ==, 0);
+  hb_face_destroy (missing);
+
   hb_face_t *face = hb_face_create (blob, 0);
   hb_blob_destroy (blob);
 
