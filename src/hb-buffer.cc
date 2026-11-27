@@ -824,7 +824,7 @@ DEFINE_NULL_INSTANCE (hb_buffer_t) =
  * A newly allocated #hb_buffer_t with a reference count of 1. The initial
  * reference count should be released with hb_buffer_destroy() when you are done
  * using the #hb_buffer_t. This function never returns `NULL`. If memory cannot
- * be allocated, a special #hb_buffer_t object will be returned on which
+ * be allocated, this function returns hb_buffer_get_empty(), for which
  * hb_buffer_allocation_successful() returns `false`.
  *
  * Since: 0.9.2
@@ -853,7 +853,8 @@ hb_buffer_create ()
  * difference is that the buffer is configured similarly to @src.
  *
  * Return value: (transfer full):
- * A newly allocated #hb_buffer_t, similar to hb_buffer_create().
+ * A newly allocated #hb_buffer_t, or hb_buffer_get_empty() on allocation
+ * failure.
  *
  * Since: 3.3.0
  **/

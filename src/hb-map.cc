@@ -44,7 +44,8 @@
  *
  * Creates a new, initially empty map.
  *
- * Return value: (transfer full): The new #hb_map_t
+ * Return value: (transfer full): The new #hb_map_t, or hb_map_get_empty()
+ * on allocation failure.
  *
  * Since: 1.7.7
  **/
@@ -173,8 +174,11 @@ hb_map_allocation_successful (const hb_map_t  *map)
  * @map: A map
  *
  * Allocate a copy of @map.
+ * Use hb_map_allocation_successful() on the result to check whether its
+ * entries were copied successfully.
  *
- * Return value: (transfer full): Newly-allocated map.
+ * Return value: (transfer full): A copy of @map, or hb_map_get_empty()
+ * if the map object cannot be allocated.
  *
  * Since: 4.4.0
  **/

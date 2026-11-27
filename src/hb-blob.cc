@@ -61,8 +61,8 @@
  * to negotiate ownership and lifecycle of @data.
  * Use hb_blob_create_or_fail() to get `NULL` on failure.
  *
- * Return value: New blob, or the empty blob if something failed or if @length is
- * zero.  Destroy with hb_blob_destroy().
+ * Return value: New blob, or hb_blob_get_empty() on failure or if @length is
+ * zero. Destroy with hb_blob_destroy().
  *
  * Since: 0.9.2
  **/
@@ -160,9 +160,8 @@ _hb_blob_destroy (void *data)
  *
  * Makes @parent immutable.
  *
- * Return value: New blob, or the empty blob if something failed or if
- * @length is zero or @offset is beyond the end of @parent's data.  Destroy
- * with hb_blob_destroy().
+ * Return value: New blob, or hb_blob_get_empty() on failure or if the
+ * requested range contains no bytes. Destroy with hb_blob_destroy().
  *
  * Since: 0.9.2
  **/

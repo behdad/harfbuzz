@@ -200,8 +200,7 @@ HB_DRAW_FUNCS_IMPLEMENT_CALLBACKS
  * A newly allocated #hb_draw_funcs_t with a reference count of 1. The initial
  * reference count should be released with hb_draw_funcs_destroy when you are
  * done using the #hb_draw_funcs_t. This function never returns `NULL`. If
- * memory cannot be allocated, a special singleton #hb_draw_funcs_t object will
- * be returned.
+ * memory cannot be allocated, it returns hb_draw_funcs_get_empty().
  *
  * Since: 4.0.0
  **/

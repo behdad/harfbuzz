@@ -261,10 +261,10 @@ HB_PAINT_FUNCS_IMPLEMENT_CALLBACKS
  *
  * The initial reference count of 1 should be released with hb_paint_funcs_destroy()
  * when you are done using the #hb_paint_funcs_t. This function never returns
- * `NULL`. If memory cannot be allocated, a special singleton #hb_paint_funcs_t
- * object will be returned.
+ * `NULL`.
  *
- * Returns value: (transfer full): the paint-functions structure
+ * Return value: (transfer full): The paint-functions structure, or
+ * hb_paint_funcs_get_empty() on allocation failure.
  *
  * Since: 7.0.0
  */

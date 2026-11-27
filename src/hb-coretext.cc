@@ -439,7 +439,8 @@ create_ct_font (CGFontRef cg_font, CGFloat font_size)
  * Creates an #hb_face_t face object from the specified
  * CGFontRef.
  *
- * Return value: (transfer full): The new face object
+ * Return value: (transfer full): The new face object, or hb_face_get_empty()
+ * if @cg_font is `NULL` or the face cannot be allocated.
  *
  * Since: 0.9.10
  */
@@ -587,7 +588,9 @@ hb_coretext_face_get_cg_font (hb_face_t *face)
  * instead (rarely needed), you can do so by calling
  * by hb_coretext_font_set_funcs().
  *
- * Return value: (transfer full): The new font object
+ * Return value: (transfer full): The new font object, or hb_font_get_empty()
+ * if @ct_font is `NULL`, its graphics font cannot be obtained, or the
+ * HarfBuzz font object cannot be allocated.
  *
  * Since: 1.7.2
  **/

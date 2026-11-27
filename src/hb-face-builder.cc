@@ -238,7 +238,8 @@ _hb_face_builder_get_table_tags (const hb_face_t *face HB_UNUSED,
  * After tables are added to the face, it can be compiled to a binary
  * font file by calling hb_face_reference_blob().
  *
- * Return value: (transfer full): New face.
+ * Return value: (transfer full): New face, or hb_face_get_empty() on
+ * allocation failure.
  *
  * Since: 1.9.0
  **/

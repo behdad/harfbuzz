@@ -767,7 +767,8 @@ user_font_face_create (hb_face_t *face)
  * Note that the scale of @font does not affect the rendering,
  * but the variations and slant that are set on @font do.
  *
- * Returns: (transfer full): a newly created #cairo_font_face_t
+ * Returns: (transfer full): A new #cairo_font_face_t. If Cairo cannot allocate
+ * the face, it returns a nil face with status %CAIRO_STATUS_NO_MEMORY.
  *
  * Since: 7.0.0
  */
@@ -812,7 +813,8 @@ hb_cairo_font_face_get_font (cairo_font_face_t *font_face)
  * Creates a #cairo_font_face_t for rendering text according
  * to @face.
  *
- * Returns: (transfer full): a newly created #cairo_font_face_t
+ * Returns: (transfer full): A new #cairo_font_face_t. If Cairo cannot allocate
+ * the face, it returns a nil face with status %CAIRO_STATUS_NO_MEMORY.
  *
  * Since: 7.0.0
  */
