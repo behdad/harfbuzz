@@ -1749,6 +1749,18 @@ typedef void (*collect_glyphs_func_t) (hb_set_t *glyphs, unsigned value, const v
 typedef bool (*match_func_t) (hb_glyph_info_t &info, unsigned value, const void *data);
 typedef unsigned (*get_value_func_t) (hb_glyph_info_t &info, const void *data);
 
+/* The lookup accelerator allocates one digest per offset, including null
+ * offsets, for every lookup subtable that reaches the array. */
+template <typename Digest>
+static bool check_lookup_cache_size (hb_sanitize_context_t *c, unsigned count)
+{
+#ifndef HB_NO_OT_LAYOUT_LOOKUP_CACHE
+  return count <= UINT_MAX / sizeof (Digest) && c->check_ops (count * sizeof (Digest));
+#else
+  return true;
+#endif
+}
+
 /* One word per RuleSet, summarizing the classes accepted at the first
  * input position after the current glyph.  Collisions only cause extra work. */
 struct hb_ot_layout_ruleset_digest_t
@@ -4256,12 +4268,7 @@ struct ContextFormat2_5
     TRACE_SANITIZE (this);
     return_trace (coverage.sanitize (c, this) && classDef.sanitize (c, this) && ruleSet.sanitize (c, this) &&
 		  hb_barrier () &&
-		  /* The lookup accelerator keeps a digest for every RuleSet
-		   * offset, for each lookup subtable that reaches this table
-		   * (see external_cache_create()), while an offset takes few
-		   * bytes, may be null, and the table may be shared.  Manually
-		   * modify the sanitizer max ops to take this into account. */
-		  c->check_ops (ruleSet.len * sizeof (hb_ot_layout_ruleset_digest_t)));
+		  check_lookup_cache_size<hb_ot_layout_ruleset_digest_t> (c, ruleSet.len));
   }
 
   protected:
@@ -6057,9 +6064,7 @@ struct ChainContextFormat2_5
 		  lookaheadClassDef.sanitize (c, this) &&
 		  ruleSet.sanitize (c, this) &&
 		  hb_barrier () &&
-		  /* Ditto ContextFormat2: charge for the per-RuleSet digests
-		   * of the lookup accelerator. */
-		  c->check_ops (ruleSet.len * sizeof (hb_ot_layout_ruleset_digest_t)));
+		  check_lookup_cache_size<hb_ot_layout_ruleset_digest_t> (c, ruleSet.len));
   }
 
   protected:

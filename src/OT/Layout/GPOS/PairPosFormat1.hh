@@ -38,12 +38,8 @@ struct PairPosFormat1_3
     if (!c->check_struct (this)) return_trace (false);
     hb_barrier ();
 
-    /* The lookup accelerator keeps a digest for every PairSet offset, for
-     * each lookup subtable that reaches this table (see
-     * external_cache_create()), while an offset takes few bytes, may be
-     * null, and the table may be shared.  Manually modify the sanitizer
-     * max ops to take this into account. */
-    if (unlikely (!c->check_ops (pairSet.len * sizeof (hb_set_digest_t)))) return_trace (false);
+    if (unlikely (!check_lookup_cache_size<hb_set_digest_t> (c, pairSet.len)))
+      return_trace (false);
 
     unsigned int len1 = valueFormat[0].get_len ();
     unsigned int len2 = valueFormat[1].get_len ();
