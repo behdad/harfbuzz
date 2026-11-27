@@ -390,6 +390,16 @@ test_tuple_points_budget ()
   hb_always_assert (decompile_cvar_with_budget (tuple_variations, &budget));
   hb_always_assert (tuple_variations.tuple_vars.length == 2);
   hb_always_assert (budget == 0);
+
+  /* Moving the default into a tuple splits it, copying its axis map. */
+  hb_tag_t tag = HB_TAG ('w','g','h','t');
+  axes.set (tag, Triple (-1., 0.25, 1.));
+  hb_hashmap_t<hb_tag_t, TripleDistances> distances;
+  distances.set (tag, TripleDistances (1., 1.));
+  OT::optimize_scratch_t scratch;
+  hb_always_assert (!tuple_variations.instantiate (axes, distances, scratch, nullptr, nullptr,
+                                                   false, &budget));
+  hb_always_assert (budget < 0);
 }
 
 int
