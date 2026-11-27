@@ -562,8 +562,14 @@ hb_ft_paint_glyph_colr (hb_font_t *font,
     (void) FT_Palette_Select(ft_face, 0, &palette);
   }
 
-  auto palette_array = hb_array ((const FT_Color *) palette,
-				 palette ? palette_data.num_palette_entries : 0);
+  /* Both paint paths unlock the face around callbacks, which may select
+   * another palette on the same face. */
+  hb_vector_t<FT_Color> palette_copy;
+  auto copy_palette = [&] () {
+    palette_copy.extend (hb_array ((const FT_Color *) palette,
+                                   palette ? palette_data.num_palette_entries : 0));
+    return !palette_copy.in_error ();
+  };
 
   /* COLRv1 */
   FT_OpaquePaint paint = {0};
@@ -571,12 +577,8 @@ hb_ft_paint_glyph_colr (hb_font_t *font,
 			        FT_COLOR_NO_ROOT_TRANSFORM,
 			        &paint))
   {
-    /* Callbacks may select another palette on the same face. */
-    hb_vector_t<FT_Color> palette_copy;
-    palette_copy.extend (palette_array);
-    if (unlikely (palette_copy.in_error ()))
-      return false;
-    palette_array = palette_copy.as_array ();
+    if (unlikely (!copy_palette ())) return false;
+    auto palette_array = palette_copy.as_array ();
 
     hb_ft_paint_context_t c (ft_font, font,
 			     paint_funcs, paint_data,
@@ -631,6 +633,7 @@ hb_ft_paint_glyph_colr (hb_font_t *font,
 
   if (palette && have_layers)
   {
+    if (unlikely (!copy_palette ())) return false;
     do
     {
       hb_bool_t is_foreground = true;
@@ -638,7 +641,7 @@ hb_ft_paint_glyph_colr (hb_font_t *font,
 
       if ( layer_color_index != 0xFFFF )
       {
-	FT_Color layer_color = palette[layer_color_index];
+	FT_Color layer_color = palette_copy[layer_color_index];
 	color = HB_COLOR (layer_color.blue,
 			  layer_color.green,
 			  layer_color.red,
