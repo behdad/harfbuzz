@@ -277,8 +277,12 @@ struct ContextualSubtable
        * queries, and a non-advancing transition, which the driver charges a
        * single op, can repeat that at will.  Charge the work to the buffer's
        * work budget.  Actions that advance run once per glyph at most. */
-      if (entry.flags & DontAdvance)
-	if (unlikely ((buffer->max_ops -= HB_BUDGET_64) <= 0)) return;
+      if ((entry.flags & DontAdvance) &&
+	  unlikely ((buffer->max_ops -= HB_BUDGET_64) <= 0))
+      {
+	buffer->successful = false;
+	return;
+      }
 
       const HBGlyphID16 *replacement;
 
