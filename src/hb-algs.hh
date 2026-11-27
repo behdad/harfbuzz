@@ -1226,11 +1226,9 @@ static inline unsigned char TOHEX (uint8_t c)
 static inline uint8_t FROMHEX (unsigned char c)
 { return (c >= '0' && c <= '9') ? c - '0' : TOLOWER (c) - 'a' + 10; }
 
-/* Library-internal; defined in hb-common.cc.  Same as
- * hb_language_matches (hb_language_from_string (str, len), specific),
- * without interning str. */
-HB_INTERNAL bool
-hb_language_matches_string (const char    *str,
+/* Length of the canonical matching prefix, or -1, without interning str. */
+HB_INTERNAL int
+hb_language_matching_prefix (const char    *str,
 			    unsigned int   len,
 			    hb_language_t  specific);
 

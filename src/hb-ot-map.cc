@@ -33,6 +33,9 @@
 #include "hb-ot-map.hh"
 #include "hb-ot-shape.hh"
 #include "hb-ot-layout.hh"
+#ifndef HB_NO_AAT_SHAPE
+#include "hb-aat-layout.hh"
+#endif
 
 
 void hb_ot_map_t::collect_lookups (unsigned int table_index, hb_set_t *lookups_out) const
@@ -42,18 +45,9 @@ void hb_ot_map_t::collect_lookups (unsigned int table_index, hb_set_t *lookups_o
 }
 
 
-hb_ot_map_builder_t::hb_ot_map_builder_t (hb_face_t *face_,
-					  const hb_segment_properties_t &props_)
+void
+hb_ot_shape_langsys_t::init (hb_face_t *face, const hb_segment_properties_t &props)
 {
-  hb_memset (this, 0, sizeof (*this));
-
-  feature_infos.init ();
-  for (unsigned int table_index = 0; table_index < 2; table_index++)
-    stages[table_index].init ();
-
-  face = face_;
-  props = props_;
-
   /* Fetch script/language indices for GSUB/GPOS.  We need these later to skip
    * features not available in either table and not waste precious bits for them. */
 
@@ -85,13 +79,13 @@ hb_ot_map_builder_t::hb_ot_map_builder_t (hb_face_t *face_,
 					 language_tags,
 					 &language_index[table_index]);
   }
-}
 
-hb_ot_map_builder_t::~hb_ot_map_builder_t ()
-{
-  feature_infos.fini ();
-  for (unsigned int table_index = 0; table_index < 2; table_index++)
-    stages[table_index].fini ();
+#ifndef HB_NO_AAT_SHAPE
+  /* https://github.com/harfbuzz/harfbuzz/issues/2124 */
+  apply_morx = hb_aat_layout_has_substitution (face) &&
+	       (HB_DIRECTION_IS_HORIZONTAL (props.direction) || !hb_ot_layout_has_substitution (face));
+  aat_language = apply_morx ? hb_aat_layout_select_language (face, props.language) : 0;
+#endif
 }
 
 void hb_ot_map_builder_t::add_feature (hb_tag_t tag,
@@ -115,8 +109,8 @@ bool hb_ot_map_builder_t::has_feature (hb_tag_t tag)
   {
     if (hb_ot_layout_language_find_feature (face,
 					    table_tags[table_index],
-					    script_index[table_index],
-					    language_index[table_index],
+					    langsys.script_index[table_index],
+					    langsys.language_index[table_index],
 					    tag,
 					    nullptr))
       return true;
@@ -215,13 +209,13 @@ hb_ot_map_builder_t::compile (hb_ot_map_t                  &m,
 
   for (unsigned int table_index = 0; table_index < 2; table_index++)
   {
-    m.chosen_script[table_index] = chosen_script[table_index];
-    m.found_script[table_index] = found_script[table_index];
+    m.chosen_script[table_index] = langsys.chosen_script[table_index];
+    m.found_script[table_index] = langsys.found_script[table_index];
 
     hb_ot_layout_language_get_required_feature (face,
 						table_tags[table_index],
-						script_index[table_index],
-						language_index[table_index],
+						langsys.script_index[table_index],
+						langsys.language_index[table_index],
 						&required_feature_index[table_index],
 						&required_feature_tag[table_index]);
   }
@@ -259,8 +253,8 @@ hb_ot_map_builder_t::compile (hb_ot_map_t                  &m,
   for (unsigned int table_index = 0; table_index < 2; table_index++)
     hb_ot_layout_collect_features_map (face,
 				       table_tags[table_index],
-				       script_index[table_index],
-				       language_index[table_index],
+				       langsys.script_index[table_index],
+				       langsys.language_index[table_index],
 				       &feature_indices[table_index]);
 
   /* Allocate bits now */

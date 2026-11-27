@@ -54,7 +54,11 @@ struct hb_shape_plan_key_t
 			 const int                     *coords,
 			 unsigned int                   num_coords,
 			 const char * const            *shaper_list,
-			 const hb_shape_plan_key_t     *cached = nullptr);
+			 const hb_shape_plan_t         *cached = nullptr);
+
+  HB_INTERNAL void init_props (hb_face_t *face, const hb_segment_properties_t &props,
+			       const hb_shape_plan_t *cached);
+  HB_INTERNAL bool props_equal (const hb_shape_plan_key_t &other) const;
 
   HB_INTERNAL void fini ()
   {

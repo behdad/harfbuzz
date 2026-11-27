@@ -53,6 +53,119 @@ test_shape_plan_null_arguments (void)
 }
 
 static void
+check_plan_languages (hb_face_t *face, const char *shaper,
+		      const char *first, const char *second, gboolean share)
+{
+  const char *shapers[] = {shaper, NULL};
+  hb_segment_properties_t props = HB_SEGMENT_PROPERTIES_DEFAULT;
+  props.script = HB_SCRIPT_LATIN;
+  props.direction = HB_DIRECTION_LTR;
+  props.language = hb_language_from_string (first, -1);
+  hb_shape_plan_t *a = hb_shape_plan_create_cached (face, &props, NULL, 0, shapers);
+  props.language = hb_language_from_string (second, -1);
+  hb_shape_plan_t *b = hb_shape_plan_create_cached (face, &props, NULL, 0, shapers);
+  g_assert_cmpstr (hb_shape_plan_get_shaper (a), ==, shaper);
+  g_assert_cmpstr (hb_shape_plan_get_shaper (b), ==, shaper);
+  g_assert_cmpint (a == b, ==, share);
+
+  if (share)
+  {
+    hb_font_t *font = hb_font_create (face);
+    hb_buffer_t *buf = hb_buffer_create ();
+    hb_buffer_set_segment_properties (buf, &props);
+    hb_buffer_add_utf8 (buf, "A", -1, 0, -1);
+    g_assert_true (hb_shape_plan_execute (a, font, buf, NULL, 0));
+    hb_buffer_destroy (buf);
+    hb_font_destroy (font);
+  }
+
+  hb_shape_plan_destroy (b);
+  hb_shape_plan_destroy (a);
+}
+
+static void
+test_shape_plan_cached_languages (void)
+{
+  hb_face_t *source = hb_test_open_font_file ("fonts/SourceSansPro-Regular.otf");
+  /* Each table independently has a Turkish LangSys under latn. */
+  const hb_tag_t tags[] = {HB_OT_TAG_GSUB, HB_OT_TAG_GPOS};
+  for (unsigned i = 0; i < G_N_ELEMENTS (tags); i++)
+  {
+    hb_face_t *face = hb_face_builder_create ();
+    hb_blob_t *blob = hb_face_reference_table (source, tags[i]);
+    g_assert_true (hb_face_builder_add_table (face, tags[i], blob));
+    hb_blob_destroy (blob);
+    check_plan_languages (face, "ot", "en", "fr", TRUE);
+    check_plan_languages (face, "ot", "fr", NULL, TRUE);
+    check_plan_languages (face, "ot", NULL, "tr", FALSE);
+    check_plan_languages (face, "ot", "tr", "tr-TR", TRUE);
+    check_plan_languages (face, "ot", "en", "tr", FALSE);
+#ifndef HB_NO_LANGUAGE_PRIVATE_SUBTAG
+    check_plan_languages (face, "ot", "en", "en-x-hbsccyrl", FALSE);
+    /* Explicit DFLT versus fallback to DFLT. */
+    check_plan_languages (face, "ot", "en-x-hbscdflt", "en-x-hbsczzzz", FALSE);
+#endif
+    hb_face_destroy (face);
+  }
+#ifndef HB_NO_FALLBACK_SHAPE
+  check_plan_languages (source, "fallback", "en", "en-GB", FALSE);
+
+  hb_segment_properties_t props = HB_SEGMENT_PROPERTIES_DEFAULT;
+  props.direction = HB_DIRECTION_LTR;
+  props.script = HB_SCRIPT_LATIN;
+  const char *shapers[] = {"fallback", NULL};
+  hb_shape_plan_t *plan = hb_shape_plan_create (source, &props, NULL, 0, shapers);
+  hb_set_t *lookups = hb_set_create ();
+  hb_ot_shape_plan_collect_lookups (plan, HB_OT_TAG_GSUB, lookups);
+  const char *ot_shapers[] = {"ot", NULL};
+  hb_shape_plan_t *ot_plan = hb_shape_plan_create (source, &props, NULL, 0, ot_shapers);
+  hb_set_t *ot_lookups = hb_set_create ();
+  hb_ot_shape_plan_collect_lookups (ot_plan, HB_OT_TAG_GSUB, ot_lookups);
+  g_assert_false (hb_set_is_empty (lookups));
+  g_assert_true (hb_set_is_equal (lookups, ot_lookups));
+  unsigned int count = hb_ot_shape_plan_get_feature_tags (ot_plan, 0, NULL, NULL);
+  g_assert_cmpuint (count, >, 0);
+  g_assert_cmpuint (hb_ot_shape_plan_get_feature_tags (plan, 0, NULL, NULL), ==, count);
+  hb_set_destroy (ot_lookups);
+  hb_shape_plan_destroy (ot_plan);
+  hb_set_destroy (lookups);
+  hb_shape_plan_destroy (plan);
+#endif
+  hb_face_destroy (source);
+}
+
+#ifndef HB_NO_AAT_SHAPE
+static void
+test_shape_plan_cached_aat_languages (void)
+{
+  hb_face_t *face = hb_test_open_font_file (
+      "../shape/data/in-house/fonts/morx-language-canonicalization.ttf");
+  check_plan_languages (face, "ot", "sr", "sr-Latn-RS", TRUE);
+  check_plan_languages (face, "ot", "zh-Hant", "zh-Hant-TW", TRUE);
+  check_plan_languages (face, "ot", "sr", "zh-Hant", FALSE);
+  check_plan_languages (face, "ot", "zh", "zh-Hant", FALSE);
+
+  /* "en.UTF-8" and "EN_US" overlap. The longer canonical match is the
+   * shorter string in the font. */
+  hb_face_t *overlap = hb_face_builder_create ();
+  hb_blob_t *morx = hb_face_reference_table (face, HB_TAG ('m','o','r','x'));
+  g_assert_true (hb_face_builder_add_table (overlap, HB_TAG ('m','o','r','x'), morx));
+  hb_blob_destroy (morx);
+  const char ltag[] = {
+    0,0,0,1, 0,0,0,0, 0,0,0,3, 0,24,0,8, 0,32,0,5, 0,37,0,2,
+    'e','n','.','U','T','F','-','8', 'E','N','_','U','S', 'f','r'
+  };
+  HB_FACE_ADD_TABLE (overlap, "ltag", ltag);
+  check_plan_languages (overlap, "ot", "en", "en-US", FALSE);
+  check_plan_languages (overlap, "ot", "en-US", "en-US-posix", TRUE);
+  /* No feature references the third tag. */
+  check_plan_languages (overlap, "ot", "de", "fr", TRUE);
+  hb_face_destroy (overlap);
+  hb_face_destroy (face);
+}
+#endif
+
+static void
 test_ot_shape_plan_get_feature_tags_rtl (void)
 {
   /* Test getting features enabled for horizontal RTL text */
@@ -559,6 +672,10 @@ main (int argc, char **argv)
   hb_test_init (&argc, &argv);
 
   hb_test_add (test_shape_plan_null_arguments);
+  hb_test_add (test_shape_plan_cached_languages);
+#ifndef HB_NO_AAT_SHAPE
+  hb_test_add (test_shape_plan_cached_aat_languages);
+#endif
   hb_test_add (test_ot_shape_plan_get_feature_tags_rtl);
   hb_test_add (test_ot_shape_plan_get_feature_tags_ltr);
   hb_test_add (test_ot_shape_plan_get_feature_tags_ttb);
