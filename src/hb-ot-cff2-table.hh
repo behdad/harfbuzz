@@ -494,7 +494,7 @@ struct cff2
 	cff2_priv_dict_interp_env_t env2 (privDictStr);
 	dict_interpreter_t<PRIVOPSET, PRIVDICTVAL, cff2_priv_dict_interp_env_t> priv_interp (env2);
 	privateDicts[i].init ();
-	if (unlikely (!priv_interp.interpret (privateDicts[i]))) goto fail;
+	if (unlikely (!priv_interp.interpret (privateDicts[i]) || privateDicts[i].values.in_error ())) goto fail;
 
 	/* Font DICTs can share a Private DICT, so the size of the table does
 	 * not bound the operators the subset accelerator records for them. */

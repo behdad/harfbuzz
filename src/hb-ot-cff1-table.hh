@@ -1204,7 +1204,7 @@ struct cff1
 	  num_interp_env_t env2 (privDictStr);
 	  dict_interpreter_t<PRIVOPSET, PRIVDICTVAL> priv_interp (env2);
 	  priv->init ();
-	  if (unlikely (!priv_interp.interpret (*priv)))   goto fail;
+	  if (unlikely (!priv_interp.interpret (*priv) || priv->values.in_error ()))   goto fail;
 
 	  /* Font DICTs can share a Private DICT, so the size of the table
 	   * does not bound the operators the subset accelerator records for
@@ -1228,7 +1228,7 @@ struct cff1
 	num_interp_env_t env (privDictStr);
 	dict_interpreter_t<PRIVOPSET, PRIVDICTVAL> priv_interp (env);
 	priv->init ();
-	if (unlikely (!priv_interp.interpret (*priv)))   goto fail;
+	if (unlikely (!priv_interp.interpret (*priv) || priv->values.in_error ()))   goto fail;
 
 	priv->localSubrs = &StructAtOffsetOrNull<CFF1Subrs> (&privDictStr, priv->subrsOffset, sc);
 	hb_barrier ();
