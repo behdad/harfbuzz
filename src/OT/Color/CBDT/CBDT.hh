@@ -56,6 +56,7 @@ struct cbdt_dedup_context_t
     unsigned int base;		/* Offset of the data in cbdt_prime. */
     unsigned int lstart;	/* Start index in lengths. */
     unsigned int lcount;	/* Number of length entries. */
+    unsigned int previous;	/* Earlier entry for the same key, or UINT_MAX. */
     uint64_t key;		/* Key of the entry in map. */
   };
 
@@ -96,7 +97,9 @@ struct cbdt_dedup_context_t
   {
     if (unlikely (entries.in_error () || this->lengths.in_error () || map.in_error ()))
       return false;
-    entry_t e = {base, this->lengths.length, lengths.length, key};
+    unsigned int *previous;
+    entry_t e = {base, this->lengths.length, lengths.length,
+                 map.has (key, &previous) ? *previous : UINT_MAX, key};
     if (unlikely (!entries.push_or_fail (e))) return false;
     for (unsigned int length : lengths)
       if (unlikely (!this->lengths.push_or_fail (length))) return false;
@@ -118,8 +121,18 @@ struct cbdt_dedup_context_t
    * up as each later identical subtable is added anew. */
   void revert (const snapshot_t &snap)
   {
-    for (unsigned int i = snap.num_entries; i < entries.length; i++)
-      map.del (entries.arrayZ[i].key);
+    for (unsigned int i = entries.length; i > snap.num_entries; i--)
+    {
+      const entry_t &entry = entries.arrayZ[i - 1];
+      if (entry.previous == UINT_MAX)
+        map.del (entry.key);
+      else
+      {
+        unsigned int *index;
+        if (map.has (entry.key, &index))
+          *index = entry.previous;
+      }
+    }
     entries.shrink (snap.num_entries, false);
     lengths.shrink (snap.num_lengths, false);
   }

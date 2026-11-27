@@ -157,6 +157,21 @@ main (int argc, char **argv)
     hb_always_assert (actual_data.as_bytes () == expected_data.as_bytes ());
   }
 
+  /* Two blocks with the same key still have distinct contents. */
+  {
+    OT::cbdt_dedup_context_t dedup;
+    hb_vector_t<unsigned> lengths {1};
+    hb_vector_t<char> bytes {'a', 'b'}, a {'a'}, b {'b'};
+    unsigned base;
+    hb_always_assert (dedup.add (0, 0, lengths));
+    auto snap = dedup.snapshot ();
+    hb_always_assert (!dedup.find (0, b, lengths, bytes, &base));
+    hb_always_assert (dedup.add (0, 1, lengths));
+    hb_always_assert (dedup.find (0, b, lengths, bytes, &base) && base == 1);
+    dedup.revert (snap);
+    hb_always_assert (dedup.find (0, a, lengths, bytes, &base) && base == 0);
+  }
+
   /* A strike that is rejected after some of its subtables were emitted is
    * reverted, and must then leave nothing behind in the cache either.
    * Truncate the source CBDT at every length to reject it at every point. */
