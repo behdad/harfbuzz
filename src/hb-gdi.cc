@@ -72,7 +72,8 @@ _hb_gdi_reference_table (hb_face_t *face HB_UNUSED, hb_tag_t tag, void *user_dat
  *
  * Constructs a new face object from the specified GDI HFONT.
  *
- * Return value: #hb_face_t object corresponding to the given input
+ * Return value: The face for @hfont, or hb_face_get_empty() if the
+ * HarfBuzz face cannot be allocated.
  *
  * Since: 2.6.0
  **/

@@ -203,7 +203,8 @@ _hb_g_bytes_unref (void *data)
  * Creates an #hb_blob_t blob from the specified
  * GBytes data structure.
  *
- * Return value: (transfer full): the new #hb_blob_t blob object
+ * Return value: (transfer full): The new blob, or hb_blob_get_empty()
+ * if @gbytes is empty or blob creation fails.
  *
  * Since: 0.9.38
  **/

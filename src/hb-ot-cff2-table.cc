@@ -127,7 +127,7 @@ bool OT::cff2::accelerator_t::get_extents_at (hb_font_t *font,
   int64_t stack_budget = HB_BUDGET_GLYPH;
   if (!budget) budget = &stack_budget;
 
-  unsigned int fd = fdSelect->get_fd (glyph);
+  unsigned int fd = fdSelect ? fdSelect->get_fd (glyph) : 0;
   const hb_ubytes_t str = (*charStrings)[glyph];
   cff2_cs_interp_env_t<number_t> env (str, *this, fd, coords.arrayZ, coords.length);
   cff2_cs_interpreter_t<cff2_cs_opset_extents_t, cff2_extents_param_t, number_t> interp (env);
@@ -225,7 +225,7 @@ bool OT::cff2::accelerator_t::get_path_at (hb_font_t *font, hb_codepoint_t glyph
   int64_t stack_budget = HB_BUDGET_GLYPH;
   if (!budget) budget = &stack_budget;
 
-  unsigned int fd = fdSelect->get_fd (glyph);
+  unsigned int fd = fdSelect ? fdSelect->get_fd (glyph) : 0;
   const hb_ubytes_t str = (*charStrings)[glyph];
   cff2_cs_interp_env_t<number_t> env (str, *this, fd, coords.arrayZ, coords.length);
   cff2_cs_interpreter_t<cff2_cs_opset_path_t, cff2_path_param_t, number_t> interp (env);

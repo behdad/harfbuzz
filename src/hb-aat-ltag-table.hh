@@ -71,16 +71,44 @@ struct ltag
 				    range.length);
   }
 
-  /* Equivalent to hb_language_matches (get_language (i), specific), but
-   * without interning the font's tag: hb_language_from_string() appends
+  /* Match without interning the font's tag: hb_language_from_string() appends
    * every new string to a process-wide, linearly-searched, never-freed list,
    * so a hostile font with many tags and many feature records referencing
    * them could make that quadratic. */
-  bool matches_language (unsigned int i, hb_language_t specific) const
+  int matching_prefix (unsigned int i, hb_language_t specific) const
   {
     const FTStringRange &range = tagRanges[i];
-    return hb_language_matches_string ((const char *) (this+range.tag).arrayZ,
-				       range.length, specific);
+    return hb_language_matching_prefix ((const char *) (this+range.tag).arrayZ,
+					range.length, specific);
+  }
+
+  unsigned int select_language (hb_language_t language, const hb_bit_set_t &selectors) const
+  {
+    /* Every matching tag is a prefix of the longest match. Its index thus
+     * identifies the whole set, including duplicate and overlapping tags. */
+    unsigned int match = 0;
+    int longest = -1;
+    auto consider = [&] (unsigned setting)
+    {
+      int length = matching_prefix (setting - 1, language);
+      if (length > longest)
+      {
+	longest = length;
+	match = setting;
+      }
+    };
+    if (unlikely (selectors.in_error ()))
+    {
+      /* A partial set cannot prove equivalence. Include every possible tag;
+       * an absent language can also match an out-of-range selector. */
+      if (!language) return UINT_MAX;
+      unsigned count = hb_min ((unsigned) tagRanges.len, 0xFFFFu);
+      for (unsigned i = 1; i <= count; i++) consider (i);
+    }
+    else
+      for (unsigned setting : selectors.iter ())
+        consider (setting);
+    return match;
   }
 
   bool sanitize (hb_sanitize_context_t *c) const

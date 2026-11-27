@@ -528,11 +528,23 @@ hb_buffer_t::move_to (unsigned int i)
 }
 
 
+hb_buffer_t::cluster_order_t
+hb_buffer_t::get_cluster_order () const
+{
+  bool descending = len && info[0].cluster > info[len - 1].cluster;
+  for (unsigned i = 1; i < len; i++)
+    if (descending ? info[i - 1].cluster < info[i].cluster
+		   : info[i - 1].cluster > info[i].cluster)
+      return cluster_order_t::UNSORTED;
+  return descending ? cluster_order_t::DESCENDING : cluster_order_t::ASCENDING;
+}
+
 void
 hb_buffer_t::set_masks (hb_mask_t    value,
 			hb_mask_t    mask,
 			unsigned int cluster_start,
-			unsigned int cluster_end)
+			unsigned int cluster_end,
+			cluster_order_t order)
 {
   if (!mask)
     return;
@@ -546,16 +558,34 @@ hb_buffer_t::set_masks (hb_mask_t    value,
 
   unsigned int count = len;
 
-  if (cluster_start == 0 && cluster_end == (unsigned int) -1)
+  unsigned start = 0, end = count;
+  if (!(cluster_start == HB_FEATURE_GLOBAL_START && cluster_end == HB_FEATURE_GLOBAL_END))
   {
-    for (unsigned int i = 0; i < count; i++)
-      info[i].mask = (info[i].mask & not_mask) | value;
-    return;
+    if (order == cluster_order_t::UNSORTED)
+    {
+      for (unsigned int i = 0; i < count; i++)
+	if (cluster_start <= info[i].cluster && info[i].cluster < cluster_end)
+	  info[i].mask = (info[i].mask & not_mask) | value;
+      return;
+    }
+
+    bool descending = order == cluster_order_t::DESCENDING;
+    if (descending)
+      hb_swap (cluster_start, cluster_end);
+
+    /* Find the first cluster >= the key when ascending, or < the key
+     * when descending.  Never return equality, even for repeated clusters. */
+    auto cmp = [] (const void *key, const void *item, bool descending)
+    {
+      unsigned cluster = ((const hb_glyph_info_t *) item)->cluster;
+      return (cluster < * (const unsigned *) key) != descending ? 1 : -1;
+    };
+    hb_bsearch_impl (&start, cluster_start, info, count, sizeof (*info), +cmp, descending);
+    hb_bsearch_impl (&end, cluster_end, info, count, sizeof (*info), +cmp, descending);
   }
 
-  for (unsigned int i = 0; i < count; i++)
-    if (cluster_start <= info[i].cluster && info[i].cluster < cluster_end)
-      info[i].mask = (info[i].mask & not_mask) | value;
+  for (unsigned i = start; i < end; i++)
+    info[i].mask = (info[i].mask & not_mask) | value;
 }
 
 void
@@ -794,7 +824,7 @@ DEFINE_NULL_INSTANCE (hb_buffer_t) =
  * A newly allocated #hb_buffer_t with a reference count of 1. The initial
  * reference count should be released with hb_buffer_destroy() when you are done
  * using the #hb_buffer_t. This function never returns `NULL`. If memory cannot
- * be allocated, a special #hb_buffer_t object will be returned on which
+ * be allocated, this function returns hb_buffer_get_empty(), for which
  * hb_buffer_allocation_successful() returns `false`.
  *
  * Since: 0.9.2
@@ -823,7 +853,8 @@ hb_buffer_create ()
  * difference is that the buffer is configured similarly to @src.
  *
  * Return value: (transfer full):
- * A newly allocated #hb_buffer_t, similar to hb_buffer_create().
+ * A newly allocated #hb_buffer_t, or hb_buffer_get_empty() on allocation
+ * failure.
  *
  * Since: 3.3.0
  **/
@@ -1572,10 +1603,19 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
  * hb_buffer_allocation_successful:
  * @buffer: An #hb_buffer_t
  *
- * Check if allocating memory for the buffer succeeded.
+ * Returns `false` if @buffer encountered an allocation failure or exceeded
+ * an internal shaping limit. An adversarial font can exhaust the shaping
+ * budget even when memory is available. Applications displaying text should
+ * normally skip this check, render the available glyphs, and continue with
+ * the remaining text. Call this after adding text or shaping if you need
+ * to detect incomplete output.
+ *
+ * hb_buffer_clear_contents() and hb_buffer_reset() clear the failure on an
+ * allocated buffer. For hb_buffer_get_empty(), this function always returns
+ * `false`.
  *
  * Return value:
- * `true` if @buffer memory allocation succeeded, `false` otherwise.
+ * `true` if @buffer has recorded no failure, `false` otherwise.
  *
  * Since: 0.9.2
  **/

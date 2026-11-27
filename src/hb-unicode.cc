@@ -174,7 +174,8 @@ hb_unicode_funcs_get_default ()
  *
  * Creates a new #hb_unicode_funcs_t structure of Unicode functions.
  *
- * Return value: (transfer full): The Unicode-functions structure
+ * Return value: (transfer full): The Unicode-functions structure, or
+ * hb_unicode_funcs_get_empty() on allocation failure.
  *
  * Since: 0.9.2
  **/

@@ -1128,7 +1128,7 @@ struct cff1
       }
 
       if (is_predef_charset ())
-	charset = &Null (Charset);
+	charset = nullptr;
       else
       {
 	charset = &StructAtOffsetOrNull<Charset> (cff, topDict.CharsetOffset, sc, &num_charset_entries);
@@ -1148,14 +1148,14 @@ struct cff1
       }
       else
       {
-	fdArray = &Null (CFF1FDArray);
-	fdSelect = &Null (CFF1FDSelect);
+	fdArray = nullptr;
+	fdSelect = nullptr;
       }
 
-      encoding = &Null (Encoding);
+      encoding = nullptr;
       if (is_CID ())
       {
-	if (unlikely (charset == &Null (Charset)))   goto fail;
+	if (unlikely (!charset))   goto fail;
       }
       else
       {
@@ -1262,7 +1262,7 @@ struct cff1
       if (unlikely (sid == CFF_UNDEF_SID))
 	return 0;
 
-      if (charset != &Null (Charset))
+      if (charset)
       {
 	/* Charset::get_glyph() is a linear scan of the charset, and seac
 	 * charstrings look their components up on every load.  Build a
@@ -1352,7 +1352,7 @@ struct cff1
     {
       if (unlikely (glyph >= num_glyphs)) return CFF_UNDEF_CODE;
 
-      if (encoding != &Null (Encoding))
+      if (encoding)
 	return encoding->get_code (glyph);
       else
       {
@@ -1376,7 +1376,7 @@ struct cff1
 
     glyph_to_sid_map_t *create_glyph_to_sid_map () const
     {
-      if (charset != &Null (Charset))
+      if (charset)
       {
 	auto *mapping = (glyph_to_sid_map_t *) hb_malloc (sizeof (glyph_to_sid_map_t));
 	if (unlikely (!mapping)) return nullptr;
@@ -1392,7 +1392,7 @@ struct cff1
     hb_codepoint_t glyph_to_sid (hb_codepoint_t glyph,
 				 code_pair_t *cache = nullptr) const
     {
-      if (charset != &Null (Charset))
+      if (charset)
 	return charset->get_sid (glyph, num_glyphs, cache);
       else
       {
@@ -1417,7 +1417,7 @@ struct cff1
 
     hb_codepoint_t sid_to_glyph (hb_codepoint_t sid) const
     {
-      if (charset != &Null (Charset))
+      if (charset)
 	return charset->get_glyph (sid, num_glyphs);
       else
       {
@@ -1445,6 +1445,9 @@ struct cff1
 
     public:
     hb_blob_t               *blob = nullptr;
+    /* encoding, charset, fdArray and fdSelect are nullptr when the font
+     * has none; not &Null(), whose address differs in each library that
+     * shares this accelerator through the face. */
     const Encoding	    *encoding = nullptr;
     const Charset	    *charset = nullptr;
     const CFF1NameIndex     *nameIndex = nullptr;

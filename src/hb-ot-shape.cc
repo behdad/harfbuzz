@@ -55,16 +55,6 @@ static inline bool
 _hb_codepoint_is_regional_indicator (hb_codepoint_t u)
 { return hb_in_range<hb_codepoint_t> (u, 0x1F1E6u, 0x1F1FFu); }
 
-#ifndef HB_NO_AAT_SHAPE
-static inline bool
-_hb_apply_morx (hb_face_t *face, const hb_segment_properties_t &props)
-{
-  /* https://github.com/harfbuzz/harfbuzz/issues/2124 */
-  return hb_aat_layout_has_substitution (face) &&
-	 (HB_DIRECTION_IS_HORIZONTAL (props.direction) || !hb_ot_layout_has_substitution (face));
-}
-#endif
-
 /**
  * SECTION:hb-ot-shape
  * @title: hb-ot-shape
@@ -81,16 +71,17 @@ hb_ot_shape_collect_features (hb_ot_shape_planner_t          *planner,
 			      unsigned int                    num_user_features);
 
 hb_ot_shape_planner_t::hb_ot_shape_planner_t (hb_face_t                     *face,
-					      const hb_segment_properties_t &props) :
+					      const hb_segment_properties_t &props,
+					      const hb_ot_shape_langsys_t   &langsys) :
 						face (face),
 						props (props),
-						map (face, props)
+						map (face, langsys)
 #ifndef HB_NO_AAT_SHAPE
 						, aat_map (face, props)
-						, apply_morx (_hb_apply_morx (face, props))
+						, apply_morx (langsys.apply_morx)
 #endif
 {
-  shaper = hb_ot_shaper_categorize (props.script, props.direction, map.chosen_script[0]);
+  shaper = hb_ot_shaper_categorize (props.script, props.direction, langsys.chosen_script[0]);
 
   script_zero_marks = shaper->zero_width_marks != HB_OT_SHAPE_ZERO_WIDTH_MARKS_NONE;
   script_fallback_position = shaper->fallback_position;
@@ -107,6 +98,7 @@ hb_ot_shape_planner_t::compile (hb_ot_shape_plan_t           &plan,
 				const hb_ot_shape_plan_key_t &key)
 {
   plan.props = props;
+  plan.last_language.set_relaxed (props.language);
   plan.shaper = shaper;
   map.compile (plan.map, key);
 #ifndef HB_NO_AAT_SHAPE
@@ -221,12 +213,12 @@ hb_ot_shape_planner_t::compile (hb_ot_shape_plan_t           &plan,
 
 bool
 hb_ot_shape_plan_t::init0 (hb_face_t                     *face,
+			   const hb_segment_properties_t &props,
 			   const hb_shape_plan_key_t     *key)
 {
   map.init ();
 
-  hb_ot_shape_planner_t planner (face,
-				 key->props);
+  hb_ot_shape_planner_t planner (face, props, key->ot.langsys);
 
   hb_ot_shape_collect_features (&planner,
 				key->user_features,
@@ -250,7 +242,7 @@ hb_ot_shape_plan_t::init0 (hb_face_t                     *face,
 void
 hb_ot_shape_plan_t::fini ()
 {
-  if (shaper->data_destroy)
+  if (shaper && shaper->data_destroy)
     shaper->data_destroy (const_cast<void *> (data));
 
   map.fini ();
@@ -756,6 +748,9 @@ hb_ot_shape_setup_masks (const hb_ot_shape_context_t *c)
   if (c->plan->shaper->setup_masks)
     c->plan->shaper->setup_masks (c->plan, buffer, c->font);
 
+  /* Only pay for a cluster-order scan when it can save repeated buffer scans. */
+  bool check_order = c->num_user_features >= 4 && buffer->len >= 64;
+  auto order = hb_buffer_t::cluster_order_t::UNSORTED;
   for (unsigned int i = 0; i < c->num_user_features; i++)
   {
     const hb_feature_t *feature = &c->user_features[i];
@@ -764,8 +759,15 @@ hb_ot_shape_setup_masks (const hb_ot_shape_context_t *c)
       bool is_global;
       hb_mask_t mask = map->get_mask (feature->tag, &shift, &is_global);
       /* A later global request supersedes earlier ranges for this tag. */
-      if (!is_global)
-	buffer->set_masks (feature->value << shift, mask, feature->start, feature->end);
+      if (!is_global && mask)
+      {
+	if (check_order)
+	{
+	  order = buffer->get_cluster_order ();
+	  check_order = false;
+	}
+	buffer->set_masks (feature->value << shift, mask, feature->start, feature->end, order);
+      }
     }
   }
 }

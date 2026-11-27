@@ -118,6 +118,8 @@ hb_shape_list_shapers ()
  * See hb_shape() for details. If @shaper_list is not `NULL`, the specified
  * shapers will be used in the given order, otherwise the default shapers list
  * will be used.
+ * If you need to detect buffer allocation failures or shaping limits,
+ * see hb_buffer_allocation_successful().
  *
  * Return value: false if all shapers failed, true otherwise
  *
@@ -180,6 +182,10 @@ hb_shape_full (hb_font_t          *font,
  * features applied during shaping. If two @features have the same tag but
  * overlapping ranges the value of the feature with the higher index takes
  * precedence.
+ *
+ * For text display, applications should normally render the available glyphs
+ * without checking hb_buffer_allocation_successful(). Use hb_shape_full()
+ * if you need to know whether the shaper succeeded.
  *
  * Since: 0.9.2
  **/

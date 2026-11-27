@@ -44,7 +44,8 @@
  *
  * Creates a new, initially empty set.
  *
- * Return value: (transfer full): The new #hb_set_t
+ * Return value: (transfer full): The new #hb_set_t, or hb_set_get_empty()
+ * on allocation failure.
  *
  * Since: 0.9.2
  **/
@@ -173,8 +174,11 @@ hb_set_allocation_successful (const hb_set_t  *set)
  * @set: A set
  *
  * Allocate a copy of @set.
+ * Use hb_set_allocation_successful() on the result to check whether its
+ * contents were copied successfully.
  *
- * Return value: (transfer full): Newly-allocated set.
+ * Return value: (transfer full): A copy of @set, or hb_set_get_empty()
+ * if the set object cannot be allocated.
  *
  * Since: 2.8.2
  **/

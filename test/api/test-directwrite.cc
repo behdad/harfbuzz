@@ -73,6 +73,36 @@ test_native_directwrite_basic (void)
 
 
 static void
+test_native_directwrite_table_blob_lifetime (void)
+{
+  IDWriteFontFace *dwfontface;
+  hb_face_t *face;
+  hb_blob_t *blob;
+  const char *data;
+  unsigned int length;
+
+  dwfontface = get_dwfontface ("fonts/Roboto-Regular.abc.ttf");
+  g_assert_nonnull (dwfontface);
+
+  face = hb_directwrite_face_create (dwfontface);
+  dwfontface->Release ();
+
+  blob = hb_face_reference_table (face, HB_TAG ('h','e','a','d'));
+
+  /* The table blob must keep the IDWriteFontFace alive past the face. */
+  hb_face_destroy (face);
+
+  data = hb_blob_get_data (blob, &length);
+  g_assert_nonnull (data);
+  g_assert_cmpuint (length, ==, 54);
+  /* magicNumber */
+  g_assert_cmpmem (data + 12, 4, "\x5F\x0F\x3C\xF5", 4);
+
+  hb_blob_destroy (blob);
+}
+
+
+static void
 test_native_directwrite_variations (void)
 {
   IDWriteFontFace *dw_face;
@@ -136,6 +166,7 @@ main (int argc, char **argv)
   hb_test_init (&argc, &argv);
 
   hb_test_add (test_native_directwrite_basic);
+  hb_test_add (test_native_directwrite_table_blob_lifetime);
   hb_test_add (test_native_directwrite_variations);
 
   return hb_test_run ();

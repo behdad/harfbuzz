@@ -53,6 +53,9 @@ HB_INTERNAL void
 hb_aat_layout_compile_map (const hb_aat_map_builder_t *mapper,
 			   hb_aat_map_t *map);
 
+HB_INTERNAL unsigned
+hb_aat_layout_select_language (hb_face_t *face, hb_language_t language);
+
 HB_INTERNAL void
 hb_aat_layout_substitute (const hb_ot_shape_plan_t *plan,
 			  hb_font_t *font,

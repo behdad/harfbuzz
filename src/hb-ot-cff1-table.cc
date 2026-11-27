@@ -396,7 +396,7 @@ bool _get_bounds (const OT::cff1::accelerator_t *cff, hb_codepoint_t glyph, boun
   bounds.init ();
   if (unlikely (!cff->is_valid () || (glyph >= cff->num_glyphs))) return false;
 
-  unsigned int fd = cff->fdSelect->get_fd (glyph);
+  unsigned int fd = cff->fdSelect ? cff->fdSelect->get_fd (glyph) : 0;
   const hb_ubytes_t str = (*cff->charStrings)[glyph];
   cff1_cs_interp_env_t env (str, *cff, fd);
   env.set_in_seac (in_seac);
@@ -534,7 +534,7 @@ bool _get_path (const OT::cff1::accelerator_t *cff, hb_font_t *font, hb_codepoin
 {
   if (unlikely (!cff->is_valid () || (glyph >= cff->num_glyphs))) return false;
 
-  unsigned int fd = cff->fdSelect->get_fd (glyph);
+  unsigned int fd = cff->fdSelect ? cff->fdSelect->get_fd (glyph) : 0;
   const hb_ubytes_t str = (*cff->charStrings)[glyph];
   cff1_cs_interp_env_t env (str, *cff, fd);
   env.set_in_seac (in_seac);
@@ -652,7 +652,7 @@ bool OT::cff1::accelerator_subset_t::get_seac_components (hb_codepoint_t glyph, 
   /* seac uses StandardEncoding names and is not defined in CID-keyed fonts. */
   if (is_CID ()) return false;
 
-  unsigned int fd = fdSelect->get_fd (glyph);
+  unsigned int fd = fdSelect ? fdSelect->get_fd (glyph) : 0;
   const hb_ubytes_t str = (*charStrings)[glyph];
   if (unlikely (!_cff1_charstring_may_end_in_seac (str, subrs_may_end_in_seac))) return false;
   cff1_cs_interp_env_t env (str, *this, fd);

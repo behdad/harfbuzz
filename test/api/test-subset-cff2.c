@@ -161,6 +161,52 @@ test_subset_cff2_retaingids (void)
   hb_face_destroy (face_ac);
 }
 
+/* Parsed charstrings are stored per retained glyph, not per output glyph ID.
+ * An out-of-order mapping with holes must still pair each with its glyph. */
+static void
+test_subset_cff2_glyph_map_holes (void)
+{
+  static const hb_codepoint_t mapping[][2] = {{1, 7}, {2, 9}, {3, 4}};
+  hb_face_t *face = hb_test_open_font_file ("fonts/AdobeVFPrototype.abc.otf");
+  hb_face_t *preprocessed = hb_subset_preprocess (face);
+  hb_font_t *font = hb_font_create (face);
+
+  for (unsigned mode = 0; mode < 4; mode++)
+  {
+    hb_subset_input_t *input = hb_subset_input_create_or_fail ();
+    hb_subset_input_set_flags (input, mode & 1 ? HB_SUBSET_FLAGS_NO_HINTING : HB_SUBSET_FLAGS_DEFAULT);
+    for (unsigned i = 0; i < G_N_ELEMENTS (mapping); i++)
+    {
+      hb_set_add (hb_subset_input_glyph_set (input), mapping[i][0]);
+      hb_map_set (hb_subset_input_old_to_new_glyph_mapping (input), mapping[i][0], mapping[i][1]);
+    }
+
+    hb_face_t *subset = hb_subset_or_fail (mode & 2 ? preprocessed : face, input);
+    g_assert_nonnull (subset);
+    g_assert_cmpuint (hb_face_get_glyph_count (subset), ==, 10);
+
+    hb_font_t *subset_font = hb_font_create (subset);
+    for (unsigned i = 0; i < G_N_ELEMENTS (mapping); i++)
+    {
+      hb_glyph_extents_t expected, actual;
+      g_assert_true (hb_font_get_glyph_extents (font, mapping[i][0], &expected));
+      g_assert_true (hb_font_get_glyph_extents (subset_font, mapping[i][1], &actual));
+      g_assert_cmpint (actual.x_bearing, ==, expected.x_bearing);
+      g_assert_cmpint (actual.y_bearing, ==, expected.y_bearing);
+      g_assert_cmpint (actual.width, ==, expected.width);
+      g_assert_cmpint (actual.height, ==, expected.height);
+    }
+
+    hb_font_destroy (subset_font);
+    hb_face_destroy (subset);
+    hb_subset_input_destroy (input);
+  }
+
+  hb_font_destroy (font);
+  hb_face_destroy (preprocessed);
+  hb_face_destroy (face);
+}
+
 static void
 test_subset_cff2_fdselect_format4 (void)
 {
@@ -584,6 +630,7 @@ main (int argc, char **argv)
   hb_test_add (test_subset_cff2_desubr);
   hb_test_add (test_subset_cff2_desubr_strip_hints);
   hb_test_add (test_subset_cff2_retaingids);
+  hb_test_add (test_subset_cff2_glyph_map_holes);
   hb_test_add (test_subset_cff2_fdselect_format4);
 
 #ifdef HB_EXPERIMENTAL_API

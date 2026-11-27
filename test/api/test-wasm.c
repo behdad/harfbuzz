@@ -472,6 +472,25 @@ test_wasm_failed_call (void)
 }
 
 static void
+test_wasm_positions_on_success (void)
+{
+  hb_face_t *face = hb_test_open_font_file ("fonts/wasm-noop.ttf");
+  hb_font_t *font = hb_font_create (face);
+  hb_buffer_t *buffer = shape_text (font, "a");
+  unsigned length;
+  g_assert_true (hb_buffer_has_positions (buffer));
+  const hb_glyph_position_t *pos = hb_buffer_get_glyph_positions (buffer, &length);
+  g_assert_cmpuint (length, ==, 1);
+  g_assert_cmpint (pos[0].x_advance, ==, 0);
+  g_assert_cmpint (pos[0].y_advance, ==, 0);
+  g_assert_cmpint (pos[0].x_offset, ==, 0);
+  g_assert_cmpint (pos[0].y_offset, ==, 0);
+  hb_buffer_destroy (buffer);
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+}
+
+static void
 test_wasm_coords_free (void)
 {
   static const int coords[2] = {1 << 14, -(1 << 13)};
@@ -1097,6 +1116,7 @@ main (int argc, char **argv)
   hb_test_add (test_wasm_positions_of_the_caller);
   hb_test_add (test_wasm_failed_call);
   hb_test_add (test_wasm_coords_free);
+  hb_test_add (test_wasm_positions_on_success);
   hb_test_add (test_wasm_coords_of_the_font_given);
 #ifdef HB_TEST_WASM_BUDGET
   hb_test_add (test_wasm_memory_limit);

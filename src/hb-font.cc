@@ -844,7 +844,8 @@ static const hb_font_funcs_t _hb_font_funcs_default = {
  *
  * Creates a new #hb_font_funcs_t structure of font functions.
  *
- * Return value: (transfer full): The font-functions structure
+ * Return value: (transfer full): The font-functions structure, or
+ * hb_font_funcs_get_empty() on allocation failure.
  *
  * Since: 0.9.2
  **/
@@ -2165,7 +2166,8 @@ _hb_font_init_variations (hb_font_t *font HB_UNUSED, hb_face_t *face HB_UNUSED)
  * specifying which named-instance to load by default when creating the
  * face.</note>
  *
- * Return value: (transfer full): The new font object
+ * Return value: (transfer full): The new font object, or hb_font_get_empty()
+ * if the font object cannot be allocated.
  *
  * Since: 0.9.2
  **/
@@ -2226,7 +2228,8 @@ _hb_font_adopt_var_coords (hb_font_t *font,
  * Constructs a sub-font font object from the specified @parent font,
  * replicating the parent's properties.
  *
- * Return value: (transfer full): The new sub-font font object
+ * Return value: (transfer full): The new sub-font, or hb_font_get_empty()
+ * if the font object cannot be allocated.
  *
  * Since: 0.9.2
  **/

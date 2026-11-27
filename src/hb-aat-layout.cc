@@ -241,6 +241,15 @@ AAT::mort::is_blocklisted (hb_blob_t *blob,
   return false;
 }
 
+unsigned
+hb_aat_layout_select_language (hb_face_t *face, hb_language_t language)
+{
+  const auto &morx = *face->table.morx;
+  const auto &selectors = morx.table->has_data () ? morx.language_selectors :
+                                                    face->table.mort->language_selectors;
+  return face->table.ltag->select_language (language, selectors);
+}
+
 void
 hb_aat_layout_compile_map (const hb_aat_map_builder_t *mapper,
 			   hb_aat_map_t *map)

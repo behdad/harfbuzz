@@ -160,6 +160,7 @@ _hb_directwrite_table_data_release (void *data)
 {
   _hb_directwrite_font_table_context *context = (_hb_directwrite_font_table_context *) data;
   context->face->ReleaseFontTable (context->table_context);
+  context->face->Release ();
   hb_free (context);
 }
 
@@ -201,14 +202,19 @@ _hb_directwrite_get_file_blob (IDWriteFontFace *dw_face)
     if (FAILED (stream->GetFileSize(&file_size)) ||
         FAILED (stream->ReadFileFragment (&fragment, 0, file_size, &context)))
     {
+      stream->Release ();
       loader->Release ();
       continue;
     }
     blob = hb_blob_create ((const char *) fragment, file_size, HB_MEMORY_MODE_DUPLICATE, NULL, NULL);
     stream->ReleaseFileFragment (context);
+    stream->Release ();
     loader->Release ();
     break;
   }
+
+  for (auto *file : files.as_array ().sub_array (0, file_count))
+    file->Release ();
 
   return blob;
 }
@@ -240,6 +246,9 @@ _hb_directwrite_reference_table (hb_face_t *face HB_UNUSED, hb_tag_t tag, void *
     dw_face->ReleaseFontTable (table_context);
     return nullptr;
   }
+  /* The table data is only valid as long as the font face is alive,
+   * and the blob can outlive the hb_face_t; hold a reference. */
+  dw_face->AddRef ();
   context->face = dw_face;
   context->table_context = table_context;
 
@@ -259,7 +268,8 @@ _hb_directwrite_face_release (void *data)
  *
  * Constructs a new face object from the specified DirectWrite IDWriteFontFace.
  *
- * Return value: #hb_face_t object corresponding to the given input
+ * Return value: The face for @dw_face, or hb_face_get_empty() if @dw_face
+ * is `NULL` or the HarfBuzz face cannot be allocated.
  *
  * Since: 2.4.0
  **/
@@ -292,7 +302,8 @@ hb_directwrite_face_create (IDWriteFontFace *dw_face)
  * but uses the DirectWrite library for loading the font file.
  *
  * Return value: (transfer full): The new face object, or `NULL` if
- * no face is found at the specified index or the file cannot be read.
+ * the file cannot be read, no face is found at the specified index,
+ * or the HarfBuzz face cannot be allocated.
  *
  * Since: 11.0.0
  */
@@ -304,7 +315,10 @@ hb_directwrite_face_create_from_file_or_fail (const char   *file_name,
   if (unlikely (!blob))
     return nullptr;
 
-  return hb_directwrite_face_create_from_blob_or_fail (blob, index);
+  hb_face_t *face = hb_directwrite_face_create_from_blob_or_fail (blob, index);
+  hb_blob_destroy (blob);
+
+  return face;
 }
 
 /**
@@ -319,7 +333,8 @@ hb_directwrite_face_create_from_file_or_fail (const char   *file_name,
  * but uses the DirectWrite library for loading the font data.
  *
  * Return value: (transfer full): The new face object, or `NULL` if
- * no face is found at the specified index or the blob cannot be read.
+ * the blob cannot be read, no face is found at the specified index,
+ * or the HarfBuzz face cannot be allocated.
  *
  * Since: 11.0.0
  */
@@ -335,7 +350,7 @@ hb_directwrite_face_create_from_blob_or_fail (hb_blob_t    *blob,
   if (unlikely (hb_object_is_immutable (face)))
   {
     dw_face->Release ();
-    return face;
+    return nullptr;
   }
 
   /* Let there be dragons here... */
@@ -387,7 +402,8 @@ hb_directwrite_face_get_font_face (hb_face_t *face)
  *
  * Constructs a new font object from the specified DirectWrite IDWriteFontFace.
  *
- * Return value: #hb_font_t object corresponding to the given input
+ * Return value: The font for @dw_face, or hb_font_get_empty() if the
+ * HarfBuzz font object cannot be allocated.
  *
  * Since: 11.0.0
  **/

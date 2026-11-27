@@ -211,14 +211,38 @@ struct hb_ot_map_feature_t
 
 struct hb_ot_shape_plan_key_t;
 
+struct hb_ot_shape_langsys_t
+{
+  hb_tag_t chosen_script[2];
+  bool found_script[2];
+  unsigned int script_index[2], language_index[2];
+#ifndef HB_NO_AAT_SHAPE
+  bool apply_morx;
+  unsigned int aat_language;
+#endif
+
+  HB_INTERNAL void init (hb_face_t *face, const hb_segment_properties_t &props);
+
+  bool operator == (const hb_ot_shape_langsys_t &o) const
+  {
+    /* On one face the script index determines the chosen tag. An explicit
+     * script match and a fallback to the same script can shape differently. */
+    return script_index[0] == o.script_index[0] && script_index[1] == o.script_index[1] &&
+	   found_script[0] == o.found_script[0] && found_script[1] == o.found_script[1] &&
+#ifndef HB_NO_AAT_SHAPE
+	   aat_language == o.aat_language &&
+#endif
+	   language_index[0] == o.language_index[0] && language_index[1] == o.language_index[1];
+  }
+};
+
 struct hb_ot_map_builder_t
 {
   public:
 
   HB_INTERNAL hb_ot_map_builder_t (hb_face_t *face_,
-				   const hb_segment_properties_t &props_);
-
-  HB_INTERNAL ~hb_ot_map_builder_t ();
+				   const hb_ot_shape_langsys_t &langsys_) :
+				     face (face_), langsys (langsys_) {}
 
   HB_INTERNAL void add_feature (hb_tag_t tag,
 				hb_ot_map_feature_flags_t flags=F_NONE,
@@ -285,16 +309,12 @@ struct hb_ot_map_builder_t
   public:
 
   hb_face_t *face;
-  hb_segment_properties_t props;
-  bool is_simple;
-
-  hb_tag_t chosen_script[2];
-  bool found_script[2];
-  unsigned int script_index[2], language_index[2];
+  const hb_ot_shape_langsys_t &langsys;
+  bool is_simple = false;
 
   private:
 
-  unsigned int current_stage[2]; /* GSUB/GPOS */
+  unsigned int current_stage[2] = {}; /* GSUB/GPOS */
   hb_vector_t<feature_info_t> feature_infos;
   hb_vector_t<stage_info_t> stages[2]; /* GSUB/GPOS */
 };
