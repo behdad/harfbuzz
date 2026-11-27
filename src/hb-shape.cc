@@ -118,6 +118,7 @@ hb_shape_list_shapers ()
  * See hb_shape() for details. If @shaper_list is not `NULL`, the specified
  * shapers will be used in the given order, otherwise the default shapers list
  * will be used.
+ * Check hb_buffer_allocation_successful() as well before using the output.
  *
  * Return value: false if all shapers failed, true otherwise
  *
@@ -180,6 +181,9 @@ hb_shape_full (hb_font_t          *font,
  * features applied during shaping. If two @features have the same tag but
  * overlapping ranges the value of the feature with the higher index takes
  * precedence.
+ *
+ * Check hb_buffer_allocation_successful() before using the output.
+ * To check for shaper failure as well, use hb_shape_full().
  *
  * Since: 0.9.2
  **/

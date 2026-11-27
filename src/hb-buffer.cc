@@ -1602,10 +1602,16 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
  * hb_buffer_allocation_successful:
  * @buffer: An #hb_buffer_t
  *
- * Check if allocating memory for the buffer succeeded.
+ * Returns `false` if @buffer encountered an allocation failure or exceeded
+ * an internal shaping limit. Check this after adding text or shaping, and
+ * discard the buffer contents on failure.
+ *
+ * hb_buffer_clear_contents() and hb_buffer_reset() clear the failure on an
+ * allocated buffer. For hb_buffer_get_empty(), this function always returns
+ * `false`.
  *
  * Return value:
- * `true` if @buffer memory allocation succeeded, `false` otherwise.
+ * `true` if @buffer has recorded no failure, `false` otherwise.
  *
  * Since: 0.9.2
  **/

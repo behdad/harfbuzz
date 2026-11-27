@@ -59,6 +59,7 @@
  *
  * Creates a new "blob" object wrapping @data.  The @mode parameter is used
  * to negotiate ownership and lifecycle of @data.
+ * Use hb_blob_create_or_fail() to get `NULL` on failure.
  *
  * Return value: New blob, or the empty blob if something failed or if @length is
  * zero.  Destroy with hb_blob_destroy().
@@ -597,6 +598,7 @@ _open_resource_fork (const char *file_name, hb_mapped_file_t *file)
  *
  * Creates a new blob containing the data from the
  * specified binary font file.
+ * Use hb_blob_create_from_file_or_fail() to get `NULL` on failure.
  *
  * The filename is passed directly to the system on all platforms,
  * except on Windows, where the filename is interpreted as UTF-8.
