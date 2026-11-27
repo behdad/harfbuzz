@@ -234,7 +234,11 @@ test_index_data_size_limits ()
     if (success)
     {
       hb_always_assert (index->offset_array_size () == 4 * 3);
-      hb_always_assert ((*index)[1].length == total - total / 2);
+      /* Two items, four-byte offsets: 1, 1 + total / 2, 1 + total. */
+      static const unsigned char expected[] = {
+        0, 2, 4, 0, 0, 0, 1, 0x80, 0, 0, 0, 0xff, 0xff, 0xff, 0xff
+      };
+      hb_always_assert (!hb_memcmp (buffer, expected, sizeof (expected)));
     }
     else
       hb_always_assert (c.in_error () && !c.ran_out_of_room ());
