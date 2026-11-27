@@ -156,7 +156,7 @@ hb_map_get_user_data (const hb_map_t     *map,
  * hb_map_allocation_successful:
  * @map: A map
  *
- * Tests whether memory allocation for a set was successful.
+ * Tests whether memory allocation for @map was successful.
  *
  * Return value: `true` if allocation succeeded, `false` otherwise
  *

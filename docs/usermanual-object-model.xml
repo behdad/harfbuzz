@@ -193,13 +193,15 @@
       before using the object.
     </para>
     <para>
-      If you need to detect incomplete output, you can call
+      Buffers, sets, and maps record allocation failures on the object.
+      You can check
       <link linkend="hb-buffer-allocation-successful">hb_buffer_allocation_successful()</link>
-      after adding text or shaping. It returns false if allocating or
-      growing the buffer failed, or if shaping an adversarial font
-      exceeded an internal limit. For text display,
-      applications should normally skip this check, render the available
-      glyphs, and continue with the remaining text.
+      after adding text,
+      <link linkend="hb-set-allocation-successful">hb_set_allocation_successful()</link>
+      after adding set members, or
+      <link linkend="hb-map-allocation-successful">hb_map_allocation_successful()</link>
+      after inserting map entries. Each function also returns false for
+      its type’s empty singleton.
     </para>
   </section>
 
