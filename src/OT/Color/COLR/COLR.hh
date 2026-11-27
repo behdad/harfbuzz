@@ -2655,12 +2655,12 @@ struct COLR
 				    hb_set_t *palettes /* OUT */) const
     { colr->closure_V0palette_indices (glyphs, palettes); }
 
-    void closure_forV1 (hb_set_t *glyphset,
+    bool closure_forV1 (hb_set_t *glyphset,
                         hb_set_t *layer_indices,
                         hb_set_t *palette_indices,
                         hb_set_t *variation_indices,
                         hb_set_t *delta_set_indices) const
-    { colr->closure_forV1 (glyphset, layer_indices, palette_indices, variation_indices, delta_set_indices); }
+    { return colr->closure_forV1 (glyphset, layer_indices, palette_indices, variation_indices, delta_set_indices); }
 
     bool has_var_store () const
     { return colr->has_var_store (); }
@@ -2790,13 +2790,13 @@ struct COLR
       palettes->add (all_layers[idx].colorIdx);
   }
 
-  void closure_forV1 (hb_set_t *glyphset,
+  bool closure_forV1 (hb_set_t *glyphset,
                       hb_set_t *layer_indices,
                       hb_set_t *palette_indices,
                       hb_set_t *variation_indices,
                       hb_set_t *delta_set_indices) const
   {
-    if (version < 1) return;
+    if (version < 1) return true;
     hb_barrier ();
 
     hb_set_t visited_glyphs;
@@ -2812,6 +2812,7 @@ struct COLR
       const Paint &paint = &baseglyph_paintrecords+baseglyph_paintrecord.paint;
       paint.dispatch (&c);
     }
+    if (unlikely (visited_glyphs.in_error () || c.visited_paint.in_error ())) return false;
     hb_set_union (glyphset, &visited_glyphs);
 
     const ClipList &cliplist = this+clipList;
@@ -2819,7 +2820,9 @@ struct COLR
     for (const ClipRecord &clip_record : cliplist.clips.iter())
       clip_record.closurev1 (&c, &cliplist);
 
-    if (unlikely (!c.variation_indices.flush ())) return;
+    if (unlikely (glyphset->in_error () || layer_indices->in_error () ||
+                  palette_indices->in_error () || !c.variation_indices.flush ()))
+      return false;
 
     // if a DeltaSetIndexMap is included, collected variation indices are
     // actually delta set indices, we need to map them into variation indices
@@ -2831,8 +2834,9 @@ struct COLR
       hb_set_builder_t<> mapped (*variation_indices);
       for (unsigned delta_set_idx : *delta_set_indices)
         mapped.add (var_idx_map.map (delta_set_idx));
-      mapped.flush ();
+      return !delta_set_indices->in_error () && mapped.flush ();
     }
+    return true;
   }
 
   const LayerList& get_layerList () const
