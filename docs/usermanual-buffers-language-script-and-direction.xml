@@ -28,6 +28,15 @@
       initialized with <function>hb_buffer_create()</function>. This
       produces a new, empty buffer object, instantiated with some
       default values and ready to accept your Unicode strings.
+      If allocation fails, it returns <function>hb_buffer_get_empty()</function>.
+      You can detect this failure with
+      <link linkend="hb-buffer-allocation-successful">hb_buffer_allocation_successful()</link>.
+    </para>
+    <para>
+      Shaping an adversarial font can also make this function return false
+      if the buffer reaches an internal shaping limit. Applications displaying
+      text should normally skip this check, render the available glyphs, and
+      continue with the remaining text.
     </para>
     <para>
       HarfBuzz manages the memory of objects (such as buffers) that it

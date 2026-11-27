@@ -1321,7 +1321,8 @@ _destroy_blob (void *p)
  * then it is the client program's responsibility to destroy @ft_face
  * after the #hb_face_t face object has been destroyed.
  *
- * Return value: (transfer full): the new #hb_face_t face object
+ * Return value: (transfer full): The HarfBuzz face, or hb_face_get_empty()
+ * if face creation fails.
  *
  * Since: 0.9.2
  **/
@@ -1383,7 +1384,8 @@ hb_ft_face_create (FT_Face           ft_face,
  *
  * Use this version unless you know you have good reasons not to.
  *
- * Return value: (transfer full): the new #hb_face_t face object
+ * Return value: (transfer full): The HarfBuzz face, or hb_face_get_empty()
+ * if face creation fails.
  *
  * Since: 0.9.38
  **/
@@ -1420,7 +1422,8 @@ hb_ft_face_finalize (void *arg)
  * However, client programs are still responsible for destroying
  * @ft_face after the last #hb_face_t face object has been destroyed.
  *
- * Return value: (transfer full): the new #hb_face_t face object
+ * Return value: (transfer full): The HarfBuzz face, or hb_face_get_empty()
+ * if face creation fails.
  *
  * Since: 0.9.2
  **/
@@ -1465,7 +1468,8 @@ hb_ft_face_create_cached (FT_Face ft_face)
  * and it is the client program's responsibility to ensure that @ft_face is
  * destroyed only after the #hb_font_t font object has been destroyed.
  *
- * Return value: (transfer full): the new #hb_font_t font object
+ * Return value: (transfer full): The HarfBuzz font, or hb_font_get_empty()
+ * if font creation fails.
  *
  * Since: 0.9.2
  **/
@@ -1605,7 +1609,8 @@ hb_ft_hb_font_changed (hb_font_t *font)
  *
  * Use this version unless you know you have good reasons not to.
  *
- * Return value: (transfer full): the new #hb_font_t font object
+ * Return value: (transfer full): The HarfBuzz font, or hb_font_get_empty()
+ * if font creation fails.
  *
  * Since: 0.9.38
  **/

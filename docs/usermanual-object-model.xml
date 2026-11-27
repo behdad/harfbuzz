@@ -171,27 +171,37 @@
       programs need to alter an object previously marked as immutable,
       they will need to make a duplicate of the original.
     </para>
+  </section>
+
+  <section id="object-model-failures">
+    <title>Detecting failures</title>
     <para>
-      Finally, most object constructors return an “empty” object
-      singleton on allocation failure rather than
-      <literal>NULL</literal>. Constructors whose names end in
-      <literal>_or_fail</literal>, such as
-      <function>hb_blob_create_or_fail()</function> and
-      <function>hb_blob_create_from_file_or_fail()</function>, instead
-      return <literal>NULL</literal> on failure. Check their return
-      values before using the objects, and consult each constructor's
-      API Reference documentation for its failure behavior.
+      Most HarfBuzz constructors return a shared, inert object on allocation
+      failure. You can pass this object to HarfBuzz functions and destroy it
+      as usual. For example, if <function>hb_font_create()</function> cannot
+      allocate a font, it returns <function>hb_font_get_empty()</function>.
     </para>
     <para>
-      These empty-object singletons are inert and safe (although
-      typically useless) to pass around.  This design choice avoids
-      having to check for <literal>NULL</literal> pointers all
-      throughout the code.
+      Constructors whose names end in <literal>_or_fail</literal> return
+      <literal>NULL</literal> on failure. Use
+      <link linkend="hb-blob-create-or-fail">hb_blob_create_or_fail()</link>
+      to wrap data in memory,
+      <link linkend="hb-blob-create-from-file-or-fail">hb_blob_create_from_file_or_fail()</link>
+      to read a file, or
+      <link linkend="hb-face-create-or-fail">hb_face_create_or_fail()</link>
+      to open a face at a given index in a blob. Check the return value
+      before using the object.
     </para>
     <para>
-      In addition, this “empty” object singleton can also be accessed
-      using the <function>get_empty()</function> method of the object
-      type in question.
+      Buffers, sets, and maps record allocation failures on the object.
+      You can check
+      <link linkend="hb-buffer-allocation-successful">hb_buffer_allocation_successful()</link>
+      after adding text,
+      <link linkend="hb-set-allocation-successful">hb_set_allocation_successful()</link>
+      after adding set members, or
+      <link linkend="hb-map-allocation-successful">hb_map_allocation_successful()</link>
+      after inserting map entries. Each function also returns false for
+      its type’s empty singleton.
     </para>
   </section>
 

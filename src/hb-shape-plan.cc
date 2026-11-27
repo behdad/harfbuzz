@@ -212,7 +212,8 @@ hb_shape_plan_key_t::equal (const hb_shape_plan_key_t *other)
  * Constructs a shaping plan for a combination of @face, @user_features, @props,
  * and @shaper_list.
  *
- * Return value: (transfer full): The shaping plan
+ * Return value: (transfer full): The shaping plan, or hb_shape_plan_get_empty()
+ * if plan creation fails. See hb_shape_plan_create2() for failure conditions.
  *
  * Since: 0.9.7
  **/
@@ -243,7 +244,9 @@ hb_shape_plan_create (hb_face_t                     *face,
  * Constructs a shaping plan for a combination of @face, @user_features, @props,
  * and @shaper_list, plus the variation-space coordinates @coords.
  *
- * Return value: (transfer full): The shaping plan
+ * Return value: (transfer full): The shaping plan, or hb_shape_plan_get_empty()
+ * if @props is `NULL`, its direction is invalid, no suitable shaper is found,
+ * or the plan cannot be allocated or initialized.
  *
  * Since: 1.4.0
  **/
@@ -507,7 +510,8 @@ hb_shape_plan_execute (hb_shape_plan_t    *shape_plan,
  * Creates a cached shaping plan suitable for reuse, for a combination
  * of @face, @user_features, @props, and @shaper_list.
  *
- * Return value: (transfer full): The shaping plan
+ * Return value: (transfer full): The shaping plan, or hb_shape_plan_get_empty()
+ * if plan creation fails. See hb_shape_plan_create2() for failure conditions.
  *
  * Since: 0.9.7
  **/
@@ -539,7 +543,8 @@ hb_shape_plan_create_cached (hb_face_t                     *face,
  * of @face, @user_features, @props, and @shaper_list, plus the
  * variation-space coordinates @coords.
  *
- * Return value: (transfer full): The shaping plan
+ * Return value: (transfer full): The shaping plan, or hb_shape_plan_get_empty()
+ * if plan creation fails. See hb_shape_plan_create2() for failure conditions.
  *
  * Since: 1.4.0
  **/

@@ -824,7 +824,7 @@ DEFINE_NULL_INSTANCE (hb_buffer_t) =
  * A newly allocated #hb_buffer_t with a reference count of 1. The initial
  * reference count should be released with hb_buffer_destroy() when you are done
  * using the #hb_buffer_t. This function never returns `NULL`. If memory cannot
- * be allocated, a special #hb_buffer_t object will be returned on which
+ * be allocated, this function returns hb_buffer_get_empty(), for which
  * hb_buffer_allocation_successful() returns `false`.
  *
  * Since: 0.9.2
@@ -853,7 +853,8 @@ hb_buffer_create ()
  * difference is that the buffer is configured similarly to @src.
  *
  * Return value: (transfer full):
- * A newly allocated #hb_buffer_t, similar to hb_buffer_create().
+ * A newly allocated #hb_buffer_t, or hb_buffer_get_empty() on allocation
+ * failure.
  *
  * Since: 3.3.0
  **/
@@ -1602,10 +1603,19 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
  * hb_buffer_allocation_successful:
  * @buffer: An #hb_buffer_t
  *
- * Check if allocating memory for the buffer succeeded.
+ * Returns `false` if @buffer encountered an allocation failure or exceeded
+ * an internal shaping limit. An adversarial font can exhaust the shaping
+ * budget even when memory is available. Applications displaying text should
+ * normally skip this check, render the available glyphs, and continue with
+ * the remaining text. Call this after adding text or shaping if you need
+ * to detect incomplete output.
+ *
+ * hb_buffer_clear_contents() and hb_buffer_reset() clear the failure on an
+ * allocated buffer. For hb_buffer_get_empty(), this function always returns
+ * `false`.
  *
  * Return value:
- * `true` if @buffer memory allocation succeeded, `false` otherwise.
+ * `true` if @buffer has recorded no failure, `false` otherwise.
  *
  * Since: 0.9.2
  **/

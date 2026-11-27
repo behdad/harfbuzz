@@ -205,7 +205,8 @@
     <title>A simple shaping example</title>
 
     <para>
-      Below is the simplest HarfBuzz shaping example possible.
+      This example shapes a UTF-8 string with a font from a file. See
+      <xref linkend="object-model-failures"/> for more on checking errors.
     </para>
     <orderedlist numeration="arabic">
       <listitem>
@@ -240,21 +241,34 @@ hb_buffer_guess_segment_properties(buf);
     <orderedlist numeration="arabic">
       <listitem override="3">
 	<para>
-          Create a face and a font from a font file.
+          Load the first face from a font file and create a font for shaping.
+          The face constructor returns <literal>NULL</literal> if it cannot
+          read the file or find the requested face.
 	</para>
 <programlisting language="C">
-hb_blob_t *blob = hb_blob_create_from_file(filename); /* or hb_blob_create_from_file_or_fail() */
-hb_face_t *face = hb_face_create(blob, 0);
+hb_face_t *face = hb_face_create_from_file_or_fail(filename, 0);
+if (!face) {
+    hb_buffer_destroy(buf);
+    return 1;
+}
 hb_font_t *font = hb_font_create(face);
+hb_face_destroy(face);
+if (font == hb_font_get_empty()) {
+    hb_buffer_destroy(buf);
+    return 1;
+}
 </programlisting>
       </listitem>
     </orderedlist>
     <orderedlist numeration="arabic">
       <listitem override="4">
 	<para>
-          Shape!
+          Shape the text. For display, use the glyphs HarfBuzz produces even
+          if an adversarial font reaches a shaping limit. You can skip the
+          <function>hb_buffer_allocation_successful()</function> check and
+          continue rendering.
 	</para>
-<programlisting>
+<programlisting language="C">
 hb_shape(font, buf, NULL, 0);
 </programlisting>
       </listitem>
@@ -300,8 +314,6 @@ for (unsigned int i = 0; i &lt; glyph_count; i++) {
 <programlisting language="C">
 hb_buffer_destroy(buf);
 hb_font_destroy(font);
-hb_face_destroy(face);
-hb_blob_destroy(blob);
 </programlisting>
       </listitem>
     </orderedlist>

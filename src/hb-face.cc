@@ -122,7 +122,8 @@ DEFINE_NULL_INSTANCE (hb_face_t) =
  * Creates a new face object from the specified @user_data and @reference_table_func,
  * with the @destroy callback.
  *
- * Return value: (transfer full): The new face object
+ * Return value: (transfer full): The new face object, or hb_face_get_empty()
+ * if @reference_table_func is `NULL` or the face cannot be allocated.
  *
  * Since: 0.9.2
  **/
@@ -222,7 +223,8 @@ _hb_face_for_data_get_table_tags (const hb_face_t *face HB_UNUSED,
  * @index: The index of the face within @blob
  *
  * Constructs a new face object from the specified blob and
- * a face index into that blob.
+ * a face index into that blob. Use hb_face_create_or_fail() to get
+ * `NULL` if the requested face is missing or cannot be allocated.
  *
  * The face index is used for blobs of file formats such as TTC and
  * DFont that can contain more than one face.  Face indices within
@@ -236,7 +238,8 @@ _hb_face_for_data_get_table_tags (const hb_face_t *face HB_UNUSED,
  * hb_font_create() to load named-instances in variable fonts.  See
  * hb_font_create() for details.</note>
  *
- * Return value: (transfer full): The new face object
+ * Return value: (transfer full): The new face object, or hb_face_get_empty()
+ * on allocation failure
  *
  * Since: 0.9.2
  **/
@@ -281,7 +284,7 @@ hb_face_create (hb_blob_t    *blob,
  * contains no usable font face at the specified index.
  *
  * Return value: (transfer full): The new face object, or `NULL` if
- * no face is found at the specified index.
+ * no face is found at the specified index or allocation fails.
  *
  * Since: 10.1.0
  **/
@@ -310,7 +313,8 @@ hb_face_create_or_fail (hb_blob_t    *blob,
  * followed by hb_face_create_or_fail().
  *
  * Return value: (transfer full): The new face object, or `NULL` if
- * no face is found at the specified index or the file cannot be read.
+ * the file cannot be read, no face is found at the specified index,
+ * or allocation fails.
  *
  * Since: 10.1.0
  **/
