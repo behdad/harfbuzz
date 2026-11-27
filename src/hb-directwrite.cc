@@ -335,7 +335,7 @@ hb_directwrite_face_create_from_blob_or_fail (hb_blob_t    *blob,
   if (unlikely (hb_object_is_immutable (face)))
   {
     dw_face->Release ();
-    return face;
+    return nullptr;
   }
 
   /* Let there be dragons here... */
