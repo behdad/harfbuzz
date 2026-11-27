@@ -160,6 +160,7 @@ _hb_directwrite_table_data_release (void *data)
 {
   _hb_directwrite_font_table_context *context = (_hb_directwrite_font_table_context *) data;
   context->face->ReleaseFontTable (context->table_context);
+  context->face->Release ();
   hb_free (context);
 }
 
@@ -201,14 +202,19 @@ _hb_directwrite_get_file_blob (IDWriteFontFace *dw_face)
     if (FAILED (stream->GetFileSize(&file_size)) ||
         FAILED (stream->ReadFileFragment (&fragment, 0, file_size, &context)))
     {
+      stream->Release ();
       loader->Release ();
       continue;
     }
     blob = hb_blob_create ((const char *) fragment, file_size, HB_MEMORY_MODE_DUPLICATE, NULL, NULL);
     stream->ReleaseFileFragment (context);
+    stream->Release ();
     loader->Release ();
     break;
   }
+
+  for (auto *file : files.as_array ().sub_array (0, file_count))
+    file->Release ();
 
   return blob;
 }
@@ -240,6 +246,9 @@ _hb_directwrite_reference_table (hb_face_t *face HB_UNUSED, hb_tag_t tag, void *
     dw_face->ReleaseFontTable (table_context);
     return nullptr;
   }
+  /* The table data is only valid as long as the font face is alive,
+   * and the blob can outlive the hb_face_t; hold a reference. */
+  dw_face->AddRef ();
   context->face = dw_face;
   context->table_context = table_context;
 
@@ -306,7 +315,10 @@ hb_directwrite_face_create_from_file_or_fail (const char   *file_name,
   if (unlikely (!blob))
     return nullptr;
 
-  return hb_directwrite_face_create_from_blob_or_fail (blob, index);
+  hb_face_t *face = hb_directwrite_face_create_from_blob_or_fail (blob, index);
+  hb_blob_destroy (blob);
+
+  return face;
 }
 
 /**
