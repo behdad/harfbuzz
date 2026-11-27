@@ -1566,7 +1566,12 @@ struct cff1
 	    }
 	    if (unlikely (!gname.name.arrayZ))
 	      gname.name = hb_bytes_t ("", 0); /* To avoid nullptr. */
-	    names->push (gname);
+	    if (unlikely (!names->push_or_fail (gname)))
+	    {
+	      names->fini ();
+	      hb_free (names);
+	      return false;
+	    }
 	  }
 	  /* Store the glyph, not the SID: mapping a SID back to its glyph
 	   * with Charset::get_glyph() is a linear scan of the charset on
