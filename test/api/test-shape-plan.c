@@ -150,12 +150,14 @@ test_shape_plan_cached_aat_languages (void)
   g_assert_true (hb_face_builder_add_table (overlap, HB_TAG ('m','o','r','x'), morx));
   hb_blob_destroy (morx);
   const char ltag[] = {
-    0,0,0,1, 0,0,0,0, 0,0,0,2, 0,20,0,8, 0,28,0,5,
-    'e','n','.','U','T','F','-','8', 'E','N','_','U','S'
+    0,0,0,1, 0,0,0,0, 0,0,0,3, 0,24,0,8, 0,32,0,5, 0,37,0,2,
+    'e','n','.','U','T','F','-','8', 'E','N','_','U','S', 'f','r'
   };
   HB_FACE_ADD_TABLE (overlap, "ltag", ltag);
   check_plan_languages (overlap, "ot", "en", "en-US", FALSE);
   check_plan_languages (overlap, "ot", "en-US", "en-US-posix", TRUE);
+  /* No feature references the third tag. */
+  check_plan_languages (overlap, "ot", "de", "fr", TRUE);
   hb_face_destroy (overlap);
   hb_face_destroy (face);
 }

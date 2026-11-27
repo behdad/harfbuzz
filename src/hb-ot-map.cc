@@ -35,7 +35,6 @@
 #include "hb-ot-layout.hh"
 #ifndef HB_NO_AAT_SHAPE
 #include "hb-aat-layout.hh"
-#include "hb-aat-ltag-table.hh"
 #endif
 
 
@@ -85,7 +84,7 @@ hb_ot_shape_langsys_t::init (hb_face_t *face, const hb_segment_properties_t &pro
   /* https://github.com/harfbuzz/harfbuzz/issues/2124 */
   apply_morx = hb_aat_layout_has_substitution (face) &&
 	       (HB_DIRECTION_IS_HORIZONTAL (props.direction) || !hb_ot_layout_has_substitution (face));
-  aat_language = apply_morx ? face->table.ltag->select_language (props.language) : 0;
+  aat_language = apply_morx ? hb_aat_layout_select_language (face, props.language) : 0;
 #endif
 }
 

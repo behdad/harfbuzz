@@ -82,25 +82,32 @@ struct ltag
 					range.length, specific);
   }
 
-  unsigned int select_language (hb_language_t language) const
+  unsigned int select_language (hb_language_t language, const hb_bit_set_t &selectors) const
   {
-    /* An absent language can also match an out-of-range feature selector. */
-    if (!language) return UINT_MAX;
-
     /* Every matching tag is a prefix of the longest match. Its index thus
      * identifies the whole set, including duplicate and overlapping tags. */
     unsigned int match = 0;
     int longest = -1;
-    unsigned int count = hb_min ((unsigned) tagRanges.len, 0xFFFFu);
-    for (unsigned int i = 0; i < count; i++)
+    auto consider = [&] (unsigned setting)
     {
-      int length = matching_prefix (i, language);
+      int length = matching_prefix (setting - 1, language);
       if (length > longest)
       {
 	longest = length;
-	match = i + 1; /* morx language selectors are one-based. */
+	match = setting;
       }
+    };
+    if (unlikely (selectors.in_error ()))
+    {
+      /* A partial set cannot prove equivalence. Include every possible tag;
+       * an absent language can also match an out-of-range selector. */
+      if (!language) return UINT_MAX;
+      unsigned count = hb_min ((unsigned) tagRanges.len, 0xFFFFu);
+      for (unsigned i = 1; i <= count; i++) consider (i);
     }
+    else
+      for (unsigned setting : selectors.iter ())
+        consider (setting);
     return match;
   }
 

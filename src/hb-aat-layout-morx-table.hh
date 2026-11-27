@@ -1182,6 +1182,13 @@ struct Chain
 
   unsigned get_subtable_count () const { return subtableCount; }
 
+  void collect_language_selectors (hb_bit_set_t &selectors) const
+  {
+    for (const Feature &feature : featureZ.as_array (featureCount))
+      if (feature.featureType == HB_AAT_LAYOUT_FEATURE_TYPE_LANGUAGE_TAG_TYPE && feature.featureSetting)
+        selectors.add (feature.featureSetting);
+  }
+
   hb_mask_t compile_flags (const hb_aat_map_builder_t *map) const
   {
     hb_mask_t flags = defaultFlags;
@@ -1429,6 +1436,13 @@ struct mortmorx
 	this->table.destroy ();
 	this->table = hb_blob_get_empty ();
       }
+
+      const Chain<Types> *chain = &table->firstChain;
+      for (unsigned i = 0; i < chain_count; i++)
+      {
+        chain->collect_language_selectors (language_selectors);
+        chain = &StructAfter<Chain<Types>> (*chain);
+      }
     }
     ~accelerator_t ()
     {
@@ -1470,6 +1484,7 @@ struct mortmorx
 
     hb_blob_ptr_t<T> table;
     unsigned int chain_count;
+    hb_bit_set_t language_selectors;
     hb_atomic_t<hb_aat_layout_chain_accelerator_t *> *accels;
     hb_aat_scratch_t scratch;
   };
