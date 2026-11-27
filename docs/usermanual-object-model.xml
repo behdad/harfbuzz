@@ -193,11 +193,13 @@
       before using the object.
     </para>
     <para>
-      Buffers can also run out of memory as they grow. Call
+      If you need to detect incomplete output, you can call
       <link linkend="hb-buffer-allocation-successful">hb_buffer_allocation_successful()</link>
-      after adding text or shaping. A false result means you should discard
-      the contents of this run. The check also detects allocation failure in
-      <function>hb_buffer_create()</function>.
+      after adding text or shaping. It returns false if allocating or
+      growing the buffer failed, or if shaping an adversarial font
+      exceeded an internal limit. For text display,
+      applications should normally skip this check, render the available
+      glyphs, and continue with the remaining text.
     </para>
   </section>
 

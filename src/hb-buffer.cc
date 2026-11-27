@@ -1603,8 +1603,11 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
  * @buffer: An #hb_buffer_t
  *
  * Returns `false` if @buffer encountered an allocation failure or exceeded
- * an internal shaping limit. Check this after adding text or shaping, and
- * discard the buffer contents on failure.
+ * an internal shaping limit. An adversarial font can exhaust the shaping
+ * budget even when memory is available. Applications displaying text should
+ * normally skip this check, render the available glyphs, and continue with
+ * the remaining text. Call this after adding text or shaping if you need
+ * to detect incomplete output.
  *
  * hb_buffer_clear_contents() and hb_buffer_reset() clear the failure on an
  * allocated buffer. For hb_buffer_get_empty(), this function always returns

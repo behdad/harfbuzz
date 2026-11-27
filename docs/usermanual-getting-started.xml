@@ -253,25 +253,23 @@ if (!face) {
 }
 hb_font_t *font = hb_font_create(face);
 hb_face_destroy(face);
+if (font == hb_font_get_empty()) {
+    hb_buffer_destroy(buf);
+    return 1;
+}
 </programlisting>
       </listitem>
     </orderedlist>
     <orderedlist numeration="arabic">
       <listitem override="4">
 	<para>
-          Shape the text. Passing <literal>NULL</literal> for the shaper list
-          tells <function>hb_shape_full()</function> to use the same shapers
-          as <function>hb_shape()</function>. Check both the shaping result
-          and the buffer status before reading the glyphs.
+          Shape the text. For display, use the glyphs HarfBuzz produces even
+          if an adversarial font reaches a shaping limit. You can skip the
+          <function>hb_buffer_allocation_successful()</function> check and
+          continue rendering.
 	</para>
 <programlisting language="C">
-if (font == hb_font_get_empty() ||
-    !hb_shape_full(font, buf, NULL, 0, NULL) ||
-    !hb_buffer_allocation_successful(buf)) {
-    hb_font_destroy(font);
-    hb_buffer_destroy(buf);
-    return 1;
-}
+hb_shape(font, buf, NULL, 0);
 </programlisting>
       </listitem>
     </orderedlist>

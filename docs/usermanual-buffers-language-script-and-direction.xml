@@ -29,8 +29,9 @@
       produces a new, empty buffer object, instantiated with some
       default values and ready to accept your Unicode strings.
       If allocation fails, it returns <function>hb_buffer_get_empty()</function>.
-      Use <function>hb_buffer_allocation_successful()</function> to detect
-      this failure and to check the buffer again after adding text or shaping.
+      You can detect this failure with <function>hb_buffer_allocation_successful()</function>.
+      For guidance on using this check after shaping, see
+      <xref linkend="object-model-failures"/>.
     </para>
     <para>
       HarfBuzz manages the memory of objects (such as buffers) that it
