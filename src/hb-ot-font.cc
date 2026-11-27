@@ -662,10 +662,15 @@ hb_ot_get_glyph_v_origins (hb_font_t *font,
    * Each one is responsible to free it before returning.
    */
   hb_ot_font_origin_cache_t *origin_cache = ot_font->v_origin.acquire_origin_cache ();
+  if (unlikely (!origin_cache))
+  {
+    // malloc failure. No y origin was written; let the caller fall back.
+    return false;
+  }
 
   /* If there is VORG, always use it. It uses VVAR for variations if necessary. */
   const OT::VORG &VORG = *ot_face->VORG;
-  if (origin_cache && VORG.has_data ())
+  if (VORG.has_data ())
   {
 #ifndef HB_NO_VAR
     if (!font->has_nonzero_coords)
@@ -726,7 +731,7 @@ hb_ot_get_glyph_v_origins (hb_font_t *font,
    * we use the top phantom point, deduced from vmtx,glyf[,gvar]. */
   const auto &vmtx = *ot_face->vmtx;
   const auto &glyf = *ot_face->glyf;
-  if (origin_cache && vmtx.has_data() && glyf.has_data ())
+  if (vmtx.has_data() && glyf.has_data ())
   {
     auto *scratch = glyf.acquire_scratch ();
     if (unlikely (!scratch))
@@ -770,7 +775,7 @@ hb_ot_get_glyph_v_origins (hb_font_t *font,
 
   /* Otherwise, use glyph extents to center the glyph vertically.
    * If getting glyph extents failed, just use the font ascender. */
-  if (origin_cache && font->has_glyph_extents_func ())
+  if (font->has_glyph_extents_func ())
   {
     hb_font_extents_t font_extents;
     font->get_h_extents_with_fallback (&font_extents);
@@ -800,10 +805,13 @@ hb_ot_get_glyph_v_origins (hb_font_t *font,
       first_glyph = &StructAtOffsetUnaligned<hb_codepoint_t> (first_glyph, glyph_stride);
       first_y = &StructAtOffsetUnaligned<hb_position_t> (first_y, y_stride);
     }
+
+    ot_font->v_origin.release_origin_cache (origin_cache);
+    return true;
   }
 
   ot_font->v_origin.release_origin_cache (origin_cache);
-  return true;
+  return false;
 }
 #endif
 

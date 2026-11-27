@@ -143,6 +143,10 @@ void hb_outline_t::embolden (float x_strength, float y_strength,
     l_in = 0;
     signed last = (int) contours[c] - 1;
 
+    /* The loop below does not terminate on an empty contour. */
+    if (unlikely (last < first))
+      continue;
+
     /* pacify compiler */
     in.x = in.y = anchor.x = anchor.y = 0;
 

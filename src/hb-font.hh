@@ -740,6 +740,11 @@ struct hb_font_t
 					  !klass->user_data ? nullptr : klass->user_data->draw_glyph_or_fail))
       return false;
 
+    /* A recording that ran out of memory is truncated; don't use it. */
+    if (unlikely (outline.points.in_error () ||
+		  outline.contours.in_error ()))
+      return false;
+
     // Slant before embolden; produces nicer results.
 
     if (slanted)

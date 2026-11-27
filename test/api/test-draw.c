@@ -998,6 +998,52 @@ test_hb_draw_synthetic_slant (void)
   }
 }
 
+static hb_bool_t
+empty_contour_draw_glyph_or_fail (hb_font_t *font HB_UNUSED, void *font_data HB_UNUSED,
+				  hb_codepoint_t glyph HB_UNUSED,
+				  hb_draw_funcs_t *draw_funcs, void *draw_data,
+				  void *user_data HB_UNUSED)
+{
+  hb_draw_state_t st = HB_DRAW_STATE_DEFAULT;
+
+  /* A contour whose points are all at the origin... */
+  hb_draw_line_to (draw_funcs, draw_data, &st, 0.f, 0.f);
+  hb_draw_close_path (draw_funcs, draw_data, &st);
+
+  /* ...followed by the close of a path that never started. */
+  st.path_open = TRUE;
+  hb_draw_close_path (draw_funcs, draw_data, &st);
+
+  return TRUE;
+}
+
+static void
+test_hb_draw_synthetic_bold_empty_contour (void)
+{
+  char str[64];
+  draw_data_t draw_data = {
+    .str = str,
+    .size = sizeof (str)
+  };
+
+  hb_font_funcs_t *ffuncs = hb_font_funcs_create ();
+  hb_font_funcs_set_draw_glyph_or_fail_func (ffuncs, empty_contour_draw_glyph_or_fail, NULL, NULL);
+  hb_face_t *face = hb_face_create (hb_blob_get_empty (), 0);
+  hb_font_t *font = hb_font_create (face);
+  hb_font_set_funcs (font, ffuncs, NULL, NULL);
+  hb_font_set_synthetic_bold (font, 0.02f, 0.02f, FALSE);
+
+  /* Emboldening used to spin forever on a contour without points, which is
+   * also what a recording truncated by allocation failure ends with. */
+  g_assert_true (hb_font_draw_glyph_or_fail (font, 1, funcs, &draw_data));
+  char expected[] = "M0,0L0,0Z";
+  g_assert_cmpmem (str, draw_data.consumed, expected, sizeof (expected) - 1);
+
+  hb_font_destroy (font);
+  hb_face_destroy (face);
+  hb_font_funcs_destroy (ffuncs);
+}
+
 static void
 test_hb_draw_subfont_scale (void)
 {
@@ -1560,6 +1606,7 @@ main (int argc, char **argv)
  if(0) hb_test_add (test_hb_draw_stroking);
   hb_test_add (test_hb_draw_drawing_funcs);
   hb_test_add (test_hb_draw_synthetic_slant);
+  hb_test_add (test_hb_draw_synthetic_bold_empty_contour);
   hb_test_add (test_hb_draw_subfont_scale);
   hb_test_add (test_hb_draw_immutable);
   hb_test_add (test_hb_draw_budget);
