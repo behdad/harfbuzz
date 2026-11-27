@@ -66,8 +66,8 @@ static inline unsigned
 hb_raster_edge_start_row (const hb_raster_edge_t &e,
 			  const hb_raster_extents_t &ext)
 {
-  int row = (e.yL >> HB_RASTER_PIXEL_BITS) - ext.y_origin;
-  return row < 0 ? 0u : (unsigned) row;
+  int64_t row = (int64_t) (e.yL >> HB_RASTER_PIXEL_BITS) - ext.y_origin;
+  return (unsigned) hb_clamp (row, (int64_t) 0, (int64_t) ext.height);
 }
 
 /* hb_raster_draw_t — outline rasterizer */
