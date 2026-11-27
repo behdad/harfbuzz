@@ -890,10 +890,9 @@ hb_subset_plan_t::hb_subset_plan_t (hb_face_t *face,
   if (unlikely (in_error ()))
     return;
 
-  /* A fresh hb_map_t reserves up to four hash slots per entry (at
-   * least eight). Check all three maps before allocating the first. */
+  /* Charge the rounded reservation of each fresh map before allocating any. */
   auto map_bytes = [] (unsigned population) -> int64_t {
-    return hb_max ((int64_t) 8, (int64_t) 4 * population) * sizeof (hb_map_t::item_t);
+    return ((int64_t) 1 << hb_map_t::allocation_power (population)) * sizeof (hb_map_t::item_t);
   };
   unsigned retained = _glyphset.get_population ();
   int64_t bytes_remaining = HB_SUBSET_MAX_GLYPH_MAP_BYTES
