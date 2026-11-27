@@ -701,6 +701,10 @@ struct cff1_subset_plan
     if (!plan->old_gid_for_new_gid (0, &old_glyph) || (old_glyph != 0)) return false;
 
     num_glyphs = plan->num_output_glyphs ();
+    /* The count of a CFF INDEX is 16 bits wide, so CharStrings cannot hold
+     * more glyphs and serializing them would fail.  Fail before planning a
+     * charset, an encoding and charstrings for that many glyph IDs. */
+    if (unlikely (num_glyphs > 0xFFFF)) return false;
     orig_fdcount = acc.fdCount;
     drop_hints = plan->flags & HB_SUBSET_FLAGS_NO_HINTING;
     desubroutinize = plan->flags & HB_SUBSET_FLAGS_DESUBROUTINIZE;

@@ -99,8 +99,11 @@ struct cff2_instancing_plan_t
   const vardata_transform_t *get_transform (unsigned major) const
   { return major < transforms.length ? &transforms.arrayZ[major] : nullptr; }
 
-  /* Record that a retained blend references this VarData. */
-  void note_use (unsigned major) { used_majors.add (major); }
+  /* Record that a retained blend references this VarData.  A Private DICT's
+   * vsindex is an arbitrary number from the font; the ones that name no
+   * VarData are never looked up, so keep them out of the set. */
+  void note_use (unsigned major)
+  { if (likely (major < transforms.length)) used_majors.add (major); }
 
   /* The new vsindex a private dict's (or charstring's) old ivs maps to;
    * dead VarDatas fall back to 0, their blends having become static. */
@@ -563,11 +566,17 @@ struct cff2_cs_opset_flatten_t : cff2_cs_opset_t<cff2_cs_opset_flatten_t, flatte
       unsigned ivs = env.get_ivs ();
       const auto *t = param.instancer->get_transform (ivs);
       k = t && t->alive () ? t->matrix.length : 0;
+      /* The solver can split a region into several, so k is not bounded by
+       * the source regions the blend operator charged for.  Rounding visits
+       * k deltas for every operand, blended or not; a blended operand is
+       * first mapped onto them, at a multiply-add per source delta each. */
+      if (unlikely (!env.spend_budget (k, env.argStack.get_count ()))) return false;
       for (unsigned i = 0; i < env.argStack.get_count (); i++)
       {
 	auto &arg = env.argStack[i];
 	if (!arg.blending ()) continue;
 	if (unlikely (!t || arg.deltas.length != t->gains.length)) return false;
+	if (unlikely (!env.spend_budget (k, HB_BUDGET_1 + arg.deltas.length / 8))) return false;
 	double value = arg.to_real () + param.instancer->fold_deltas (ivs, arg.deltas.as_array ());
 	hb_vector_t<number_t> deltas = std::move (arg.deltas);
 	arg.set_real (value);
@@ -704,6 +713,13 @@ struct cff2_cs_opset_flatten_t : cff2_cs_opset_t<cff2_cs_opset_flatten_t, flatte
 	number_t v;
 	v.set_real (arg1.to_real () + round (instancer.fold_deltas (ivs, arg1.deltas.as_array ())));
 	encoder.encode_num_cs (v);
+      }
+      /* As in round_args (): the blend operator charged for the source
+       * regions, not for mapping each value onto the k_new instanced ones. */
+      if (unlikely (!env.spend_budget (k_new, chunk * (HB_BUDGET_1 + t->gains.length / 8))))
+      {
+	env.set_error ();
+	return;
       }
       for (unsigned int j = done; j < done + chunk; j++)
       {
