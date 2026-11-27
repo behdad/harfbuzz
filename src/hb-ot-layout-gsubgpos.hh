@@ -241,7 +241,11 @@ struct hb_closure_context_t :
 
   void flush ()
   {
-    glyphs->union_ (get_output ());
+    sync_output ();
+    if (unlikely (output->in_error ()))
+      glyphs->err ();
+    else
+      glyphs->union_ (*output);
     output->clear ();
     max_output = 0;
     active_glyphs_stack.pop ();
