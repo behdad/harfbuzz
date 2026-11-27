@@ -3578,7 +3578,8 @@ struct MultiVarData
   bool serialize (hb_serialize_context_t *c,
 		  const MultiVarData *src,
 		  const hb_inc_bimap_t &inner_map,
-		  const hb_inc_bimap_t &region_map)
+		  const hb_inc_bimap_t &region_map,
+		  int64_t *budget)
   {
     TRACE_SERIALIZE (this);
     unsigned region_count = src->regionIndices.len;
@@ -3621,6 +3622,9 @@ struct MultiVarData
       delta_sets.push (bytes);
     }
     if (unlikely (delta_sets.in_error ()))
+      return_trace (false);
+
+    if (unlikely (!c->check_success (hb_budget_spend (*budget, HB_BUDGET_1, data_size))))
       return_trace (false);
 
     auto &out_delta_sets = StructAfter<decltype (deltaSetsX)> (regionIndices);
@@ -4089,7 +4093,7 @@ struct MultiItemVariationStore
     {
       if (!inner_maps[i].get_population ()) continue;
       if (unlikely (!dataSets[set_index++].serialize_serialize (
-			    c, &(src+src->dataSets[i]), inner_maps[i], region_map)))
+			    c, &(src+src->dataSets[i]), inner_maps[i], region_map, budget)))
 	return_trace (false);
     }
     return_trace (true);
