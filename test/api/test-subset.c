@@ -305,8 +305,9 @@ static hb_face_t *
 _create_duplicate_lookup_variation_face (hb_bool_t first_keeps_default)
 {
   static const char cmap_data[] = {
-    0, 0, 0, 1,  0, 3, 0, 1,  0, 0, 0, 12,
-    0, 6,  0, 12,  0, 0,  0, 'a',  0, 1,  0, 1, /* format 6: 'a' -> glyph 1 */
+    0, 0, 0, 1,  0, 3, 0, 10,  0, 0, 0, 12,
+    0, 12, 0, 0,  0, 0, 0, 28,  0, 0, 0, 0,  0, 0, 0, 1,
+    0, 0, 0, 'a',  0, 0, 0, 'a',  0, 0, 0, 1, /* 'a' -> glyph 1 */
   };
   static const char fvar_data[] = {
     0, 1, 0, 0,  0, 16,  0, 2,  0, 1,  0, 20,  0, 0,  0, 8,
@@ -398,6 +399,7 @@ test_subset_lookup_variations_first_record (void)
     g_assert_nonnull (subset);
     /* .notdef and glyph 1, and glyph 2 when the lookup is kept. */
     g_assert_cmpuint (hb_face_get_glyph_count (subset), ==, first_keeps_default ? 3 : 2);
+    g_assert_cmpuint (_shape_letter_a (subset), ==, first_keeps_default ? 2 : 1);
 
     hb_face_destroy (subset);
     hb_subset_input_destroy (input);
