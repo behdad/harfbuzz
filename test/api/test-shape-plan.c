@@ -96,6 +96,8 @@ test_shape_plan_cached_languages (void)
     g_assert_true (hb_face_builder_add_table (face, tags[i], blob));
     hb_blob_destroy (blob);
     check_plan_languages (face, "ot", "en", "fr", TRUE);
+    check_plan_languages (face, "ot", "fr", NULL, TRUE);
+    check_plan_languages (face, "ot", NULL, "tr", FALSE);
     check_plan_languages (face, "ot", "tr", "tr-TR", TRUE);
     check_plan_languages (face, "ot", "en", "tr", FALSE);
 #ifndef HB_NO_LANGUAGE_PRIVATE_SUBTAG

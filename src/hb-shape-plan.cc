@@ -81,10 +81,20 @@ hb_shape_plan_key_t::init_props (hb_face_t *face HB_UNUSED, const hb_segment_pro
   {
     this->props.language = nullptr;
     if (cached && cached->key.shaper_func == _hb_ot_shape &&
-	hb_segment_properties_equal (&cached->ot.props, &props))
-      ot.langsys = cached->key.ot.langsys;
-    else
+        hb_segment_properties_equal (&cached->key.props, &this->props))
+    {
+      if (props.language == cached->ot.props.language ||
+          props.language == cached->ot.last_language.get_relaxed ())
+      {
+        ot.langsys = cached->key.ot.langsys;
+        return;
+      }
       ot.langsys.init (face, props);
+      if (ot.langsys == cached->key.ot.langsys)
+        cached->ot.last_language.set_relaxed (props.language);
+      return;
+    }
+    ot.langsys.init (face, props);
   }
 #endif
 }

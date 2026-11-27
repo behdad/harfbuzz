@@ -110,6 +110,8 @@ struct hb_ot_shape_plan_t
   ~hb_ot_shape_plan_t () { fini (); }
 
   hb_segment_properties_t props;
+  /* An interned language that selects this plan's language systems. */
+  mutable hb_atomic_t<hb_language_t> last_language;
   const struct hb_ot_shaper_t *shaper;
   hb_ot_map_t map;
   hb_aat_map_t aat_map;

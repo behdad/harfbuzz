@@ -98,6 +98,7 @@ hb_ot_shape_planner_t::compile (hb_ot_shape_plan_t           &plan,
 				const hb_ot_shape_plan_key_t &key)
 {
   plan.props = props;
+  plan.last_language.set_relaxed (props.language);
   plan.shaper = shaper;
   map.compile (plan.map, key);
 #ifndef HB_NO_AAT_SHAPE
